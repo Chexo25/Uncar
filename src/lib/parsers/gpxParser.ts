@@ -1,4 +1,5 @@
 import type { GPSPoint } from '../types/gpx';
+import { applyMedianFilter } from './cleaner';
 
 /**
  * Haversine distance calculation between two GPS coordinates in meters
@@ -83,5 +84,5 @@ export function parseGPX(gpxContent: string): GPSPoint[] {
 		points.push(gpsPoint);
 	}
 
-	return points;
+	return applyMedianFilter(points, 5); //apply median filter with a window size of 5 to smooth the speed values
 }

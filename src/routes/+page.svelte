@@ -1,7 +1,8 @@
 <script lang="ts">
     import {parseGPX} from '$lib/parsers/gpxParser';
-	import {segmentPoints} from '$lib/parsers/segmenter';
+	import {buildSegments} from '$lib/parsers/segmenter';
     import type { GPSPoint, Segment } from '$lib/types';
+	import type { TransportMode } from '$lib/types/gpx';
 
 	import {Button} from '$lib/components/ui/button';
 	import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '$lib/components/ui/card';
@@ -68,6 +69,31 @@
 
         reader.readAsText(file);
     }
+
+	//Format the transport mode for display purposes
+	function formatMode(mode: TransportMode): { label: string; emoji: string } {
+		switch (mode) {
+			case 'WALK':
+				return { label: 'Marche', emoji: '🚶' };
+			case 'BICYCLE':
+				return { label: 'Vélo', emoji: '🚲' };
+			case 'BUS_TRAM':
+				return { label: 'Bus / Tram', emoji: '🚌' };
+			case 'TRAIN':
+				return { label: 'Train', emoji: '🚆' };
+			case 'CAR':
+				return { label: 'Voiture', emoji: '🚗' };
+			default:
+				return { label: 'Inconnu', emoji: '❓' };
+		}
+	}
+
+	//Colors of the confidence badge based on the confidence value
+	function getConfidenceBadgeClass(confidence: number): string {
+		if (confidence >= 80) return 'bg-green-100 text-green-800 border-green-300';
+		if (confidence >= 60) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+		return 'bg-red-100 text-red-800 border-red-300';
+	}
     
     //derived reactives values
     let totalDistanceMeters = $derived(
@@ -125,42 +151,64 @@
 		</CardContent>
 	</Card>
 
+	<!-- Tableau des Segments Détectés -->
 	{#if segments.length > 0}
-    <Card class="mt-6">
-        <CardHeader>
-            <CardTitle>Segments détectés ({segments.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <div class="max-h-[300px] overflow-y-auto border rounded-md">
-                <Table>
-                    <TableHeader class="sticky top-0 bg-background z-10">
-                        <TableRow>
-                            <TableHead>Segment</TableHead>
-                            <TableHead>Début</TableHead>
-                            <TableHead>Fin</TableHead>
-                            <TableHead class="text-right">Points</TableHead>
-                            <TableHead class="text-right">Distance</TableHead>
-                            <TableHead class="text-right">Durée</TableHead>
-                            <TableHead class="text-right">Vitesse moyenne</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {#each segments as seg (seg.id)}
-                            <TableRow>
-                                <TableCell class="font-medium">#{seg.id}</TableCell>
-                                <TableCell>{seg.startTime.toLocaleTimeString()}</TableCell>
-                                <TableCell>{seg.endTime.toLocaleTimeString()}</TableCell>
-                                <TableCell class="text-right">{seg.points.length}</TableCell>
-                                <TableCell class="text-right">{seg.distanceMeters.toFixed(1)} m</TableCell>
-                                <TableCell class="text-right">{formatDuration(seg.durationSeconds)}</TableCell>
-                                <TableCell class="text-right">{(seg.avgSpeed * 3.6).toFixed(1)} km/h</TableCell>
-                            </TableRow>
-                        {/each}
-                    </TableBody>
-                </Table>
-            </div>
-        </CardContent>
-    </Card>
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>Segments détectés ({segments.length})</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<div class="max-h-[300px] overflow-y-auto border rounded-md">
+					<Table>
+						<TableHeader class="sticky top-0 bg-background z-10">
+							<TableRow>
+								<TableHead>Segment</TableHead>
+								<TableHead>Mode de transport</TableHead>
+								<TableHead class="text-center">Confiance</TableHead>
+								<TableHead>Début</TableHead>
+								<TableHead>Fin</TableHead>
+								<TableHead class="text-right">Distance</TableHead>
+								<TableHead class="text-right">Durée</TableHead>
+								<TableHead class="text-right">Vitesse moy.</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{#each segments as seg (seg.id)}
+								{@const modeInfo = formatMode(seg.mode)}
+								<TableRow>
+									<TableCell class="font-medium">#{seg.id}</TableCell>
+
+									<!-- Mode de transport -->
+									<TableCell>
+										<span class="inline-flex items-center gap-1.5 font-semibold">
+											<span>{modeInfo.emoji}</span>
+											<span>{modeInfo.label}</span>
+										</span>
+									</TableCell>
+
+									<!-- Confiance (%) -->
+									<TableCell class="text-center">
+										<span
+											class="inline-block px-2 py-0.5 text-xs font-semibold rounded-full border {getConfidenceBadgeClass(
+												seg.confidence
+											)}"
+										>
+											{seg.confidence} %
+										</span>
+									</TableCell>
+
+									<TableCell>{seg.startTime.toLocaleTimeString()}</TableCell>
+									<TableCell>{seg.endTime.toLocaleTimeString()}</TableCell>
+									<TableCell class="text-right">{seg.distanceMeters.toFixed(1)} m</TableCell>
+									<TableCell class="text-right">{formatDuration(seg.durationSeconds)}</TableCell>
+									<TableCell class="text-right">{(seg.avgSpeed * 3.6).toFixed(1)} km/h</TableCell>
+								</TableRow>
+							{/each}
+						</TableBody>
+					</Table>
+				</div>
+			</CardContent>
+		</Card>
 	{/if}
 
 	<!-- Statistiques et Tableau des points -->

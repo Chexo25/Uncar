@@ -11,7 +11,8 @@ export type TransportMode = 'walk'|'bike'|'car'|'bus'|'tram'|'train';
 
 export interface Segment {
     id: number;
-    mode?: TransportMode;
+    mode: TransportMode;
+    confidence: number; //in percentage
     points: GPSPoint[];
     startTime: Date;
     endTime: Date;
