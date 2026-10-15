@@ -25,7 +25,7 @@ export function applyLabelSmoother(rawLabels: TransportMode[], windowSize: numbe
         }
 
         //get the label with the maximum count
-        let majorityMode: rawLabels[i];
+        let majorityMode = rawLabels[i];
         let maxCount = 0;
         counts.forEach((count, mode) => {
             if (count > maxCount) {

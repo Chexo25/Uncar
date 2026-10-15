@@ -1,6 +1,10 @@
 <script lang="ts">
-    import {parseGPX} from '$lib/parsers/gpxParser';
-	import {buildSegments} from '$lib/parsers/segmenter';
+	import { parseGPX } from '$lib/parsers/gpxParser';
+	import { computePointFeatures } from '$lib/algorithm/pointMetrics';
+	import { classifyPointFeatures } from '$lib/algorithm/classifier';
+	import { applyLabelSmoother } from '$lib/algorithm/labelSmoother';
+	import { buildSegments } from '$lib/parsers/segmenter';
+	import type { PointFeatures } from '$lib/algorithm/pointMetrics';
     import type { GPSPoint, Segment } from '$lib/types';
 	import type { TransportMode } from '$lib/types/gpx';
 
@@ -27,9 +31,24 @@
 		reader.onload = (e) => {
 			const content = e.target?.result as string;
 			if (content) {
-				const parsedPoints = parseGPX(content);
-				points = parsedPoints;
-				segments = segmentPoints(parsedPoints); //segment generation
+				try {
+					const parsedPoints = parseGPX(content);
+		
+					const features = computePointFeatures(parsedPoints);
+					
+					const rawResults = features.map((f: PointFeatures) => classifyPointFeatures(f));
+					const rawLabels = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.mode);
+					const rawConfidences = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.confidence);
+
+					const smoothedLabels = applyLabelSmoother(rawLabels, 45);
+					
+					//update reactive state variables
+					points = parsedPoints;
+					segments = buildSegments(parsedPoints, smoothedLabels, rawConfidences);
+				} catch (err) {
+					console.error(err);
+					error = "Erreur lors de l'analyse du fichier GPX.";
+				}
 			}
 		};
 
@@ -71,20 +90,18 @@
     }
 
 	//Format the transport mode for display purposes
-	function formatMode(mode: TransportMode): { label: string; emoji: string } {
-		switch (mode) {
-			case 'WALK':
-				return { label: 'Marche', emoji: '🚶' };
-			case 'BICYCLE':
-				return { label: 'Vélo', emoji: '🚲' };
-			case 'BUS_TRAM':
-				return { label: 'Bus / Tram', emoji: '🚌' };
-			case 'TRAIN':
-				return { label: 'Train', emoji: '🚆' };
-			case 'CAR':
-				return { label: 'Voiture', emoji: '🚗' };
-			default:
-				return { label: 'Inconnu', emoji: '❓' };
+	function formatMode(mode: string): { label: string; emoji: string } {
+		const m = mode.toLowerCase();
+		switch (m) {
+			case 'walk': return { label: 'Marche', emoji: '🚶' };
+			case 'bike':
+			case 'bicycle': return { label: 'Vélo', emoji: '🚲' };
+			case 'bus':
+			case 'bus_tram': return { label: 'Bus / Tram', emoji: '🚌' };
+			case 'tram': return { label: 'Tramway', emoji: '🚊' };
+			case 'train': return { label: 'Train', emoji: '🚆' };
+			case 'car': return { label: 'Voiture', emoji: '🚗' };
+			default: return { label: 'Inconnu', emoji: '❓' };
 		}
 	}
 

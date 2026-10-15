@@ -14,35 +14,31 @@ export function classifyPointFeatures(
 	features: PointFeatures,
 	hasNearbyGTFSStop: boolean = false
 ): ClassificationResult {
-	const speed = features.localAvgSpeedKmH;
+	const avgSpeed = features.localAvgSpeed;
+	const maxSpeed = features.localMaxSpeed;
 
-	// 1. MARCHE (< 7.5 km/h)
-	if (speed <= 7.5) {
-		// Plus la sinuosité/changement de cap est fort, plus on est sûr que c'est de la marche
-		const confidence = Math.min(95, Math.round(70 + features.localAvgBearingChange * 1.5));
-		return { mode: 'WALK', confidence };
+	// 1. MARCHE (< 6 km/h)
+	if (maxSpeed <= 6) {
+		return { mode: 'walk', confidence: 90 };
 	}
 
-	// 2. TRANSPORTS EN COMMUN (Bus / Tram / Train)
-	if (hasNearbyGTFSStop && speed > 10) {
-		return { mode: 'BUS_TRAM', confidence: 85 };
+	// 2. TRANSPORTS EN COMMUN
+	if (hasNearbyGTFSStop && maxSpeed > 15) {
+		return { mode: 'bus', confidence: 85 };
 	}
 
-	// 3. VÉLO (7.5 km/h à 28 km/h)
-	if (speed > 7.5 && speed <= 28) {
-		// Si la vitesse est typique du vélo (12-22 km/h) et qu'il y a des petits changements de cap
-		let confidence = 75;
-		if (speed >= 12 && speed <= 22) confidence += 15;
-		if (features.localAvgBearingChange > 5) confidence += 5;
-		return { mode: 'BICYCLE', confidence: Math.min(95, confidence) };
+	// 3. VOITURE
+	// En ville, dès qu'une pointe dépasse 22 km/h sur la fenêtre glissante, c'est de la voiture.
+	if (maxSpeed > 20) {
+		let confidence = 85;
+		if (maxSpeed > 40) confidence = 95;
+		return { mode: 'car', confidence };
 	}
 
-	// 4. VOITURE / VÉHICULE RAPIDE (> 28 km/h sans arrêt GTFS)
-	if (speed > 28) {
-		let confidence = 80;
-		if (speed > 50) confidence = 95; // Très haute confiance si vitesse > 50 km/h
-		return { mode: 'CAR', confidence };
+	// 4. VÉLO (Strictement entre 6 km/h et 22 km/h max)
+	if (avgSpeed > 6 && maxSpeed <= 22) {
+		return { mode: 'bike', confidence: 75 };
 	}
 
-	return { mode: 'UNKNOWN', confidence: 40 };
+	return { mode: 'car', confidence: 60 };
 }
