@@ -6,53 +6,125 @@
 	import { buildSegments } from '$lib/parsers/segmenter';
 	import type { PointFeatures } from '$lib/algorithm/pointMetrics';
     import type { GPSPoint, Segment } from '$lib/types';
+	import { onMount } from 'svelte';
+	import { parseGTFSStops, parseGTFSShapes } from '$lib/parsers/gtfsParser';	
+	import { getNearbyGTFSType, isPointOnGTFSShape, filterShapesInBBox, matchPointsWithShapesFast } from '$lib/algorithm/gtfsMatcher';
+	import type { GTFSStop, GTFSShapePoint, GTFSMode, GTFSShape } from '$lib/types/gtfs';
 	import type { TransportMode } from '$lib/types/gpx';
 
 	import {Button} from '$lib/components/ui/button';
 	import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '$lib/components/ui/card';
 	import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '$lib/components/ui/table';
-	import {Badge} from '$lib/components/ui/badge';
     
     //reactive state variables
     let points = $state<GPSPoint[]>([]);
 	let segments = $state<Segment[]>([]);
     let fileName = $state<string>('');
     let error = $state<string>('');
+	let gtfsStops = $state<GTFSStop[]>([]);
+	let filbleuShapes = $state<Map<string, GTFSShape>>(new Map());
+	let remiShapes = $state<Map<string, GTFSShape>>(new Map());
 
-    //File import
+	async function fetchText(url: string): Promise<string> {
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`Erreur HTTP ${res.status} pour ${url}`);
+		return res.text();
+	}
+
+	onMount(async () => {
+		try {
+			//recuperation of GTFS files for Filbleu and Rémi
+			const [filbleuStopsRes, remiStopsRes, filbleuShapesRes, remiShapesRes] = await Promise.all([
+				fetch('/gtfs/filbleu/stops.txt'),
+				fetch('/gtfs/remi/stops.txt'),
+				fetch('/gtfs/filbleu/shapes.txt'),
+				fetch('/gtfs/remi/shapes.txt')
+			]);
+
+			//convert the responses to text
+			const [filbleuStopsTxt, remiStopsTxt, filbleuShapesTxt, remiShapesTxt] = await Promise.all([
+				filbleuStopsRes.text(),
+				remiStopsRes.text(),
+				filbleuShapesRes.text(),
+				remiShapesRes.text()
+			]);
+
+			//stops parsing
+			const filbleuStops = parseGTFSStops(filbleuStopsTxt, 'filbleu');
+			const remiStops = parseGTFSStops(remiStopsTxt, 'remi');
+			gtfsStops = [...filbleuStops, ...remiStops];
+
+			//shapes parsing
+			filbleuShapes = parseGTFSShapes(filbleuShapesTxt);
+			remiShapes = parseGTFSShapes(remiShapesTxt);
+
+			console.log(
+				`GTFS chargé : ${gtfsStops.length} arrêts | ${filbleuShapes.size} lignes Filbleu | ${remiShapes.size} lignes Rémi.`
+			);
+		} catch (e) {
+			console.error('Erreur lors du chargement des fichiers GTFS :', e);
+		}
+	});
+
+	//File import
     function handleFileUpload(event: Event) {
         const input = event.target as HTMLInputElement;
         if (!input.files || input.files.length === 0) return;
 
-		const file = input.files[0];
-		const reader = new FileReader(); //web API to read files
+        const file = input.files[0];
+        const reader = new FileReader();
 
-		//function called when the file is read
-		reader.onload = (e) => {
-			const content = e.target?.result as string;
-			if (content) {
-				try {
-					const parsedPoints = parseGPX(content);
-		
-					const features = computePointFeatures(parsedPoints);
-					
-					const rawResults = features.map((f: PointFeatures) => classifyPointFeatures(f));
-					const rawLabels = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.mode);
-					const rawConfidences = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.confidence);
+        reader.onload = (e) => {
+            const content = e.target?.result as string;
+            if (content) {
+                try {
+                    const parsedPoints = parseGPX(content);
+                    const features = computePointFeatures(parsedPoints);
 
-					const smoothedLabels = applyLabelSmoother(rawLabels, 45);
-					
-					//update reactive state variables
-					points = parsedPoints;
-					segments = buildSegments(parsedPoints, smoothedLabels, rawConfidences);
-				} catch (err) {
-					console.error(err);
-					error = "Erreur lors de l'analyse du fichier GPX.";
-				}
-			}
-		};
+                    // Bounding Box globale
+                    const lats = parsedPoints.map((p) => p.lat);
+                    const lons = parsedPoints.map((p) => p.lon);
+                    const margin = 0.01;
+                    const bbox = {
+                        minLat: Math.min(...lats) - margin,
+                        maxLat: Math.max(...lats) + margin,
+                        minLon: Math.min(...lons) - margin,
+                        maxLon: Math.max(...lons) + margin
+                    };
 
-		reader.readAsText(file);
+                    const activeFilbleuShapes = filterShapesInBBox(filbleuShapes, bbox);
+                    const activeRemiShapes = filterShapesInBBox(remiShapes, bbox);
+
+                    const rawResults = features.map((f: PointFeatures, idx: number) => {
+                        const point = parsedPoints[idx];
+
+                        const nearbyType = getNearbyGTFSType(point, gtfsStops, 20);
+
+                        const isOnFilbleu = isPointOnGTFSShape(point, activeFilbleuShapes, 15);
+                        const isOnRemi = isPointOnGTFSShape(point, activeRemiShapes, 15);
+
+                        let shapeType: GTFSMode | null = null;
+                        if (isOnFilbleu) shapeType = 'bus';
+                        if (isOnRemi) shapeType = 'train';
+
+                        return classifyPointFeatures(f, nearbyType, shapeType);
+                    });
+
+                    const rawLabels = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.mode);
+                    const rawConfidences = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.confidence);
+
+                    const smoothedLabels = applyLabelSmoother(rawLabels, 45);
+
+                    points = parsedPoints;
+                    segments = buildSegments(parsedPoints, smoothedLabels, rawConfidences);
+                } catch (err) {
+                    console.error(err);
+                    error = "Erreur lors de l'analyse du fichier GPX.";
+                }
+            }
+        };
+
+        reader.readAsText(file);
     }
 
 	//Utility function to format duration in seconds to a human-readable string

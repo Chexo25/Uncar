@@ -34,9 +34,18 @@ export function applyLabelSmoother(rawLabels: TransportMode[], windowSize: numbe
             }
         });
 
+        // Inertie voiture : si le mode précédent était "car" et qu'on hésite avec bus/tram
+        const previousMode = smoothed.length > 0 ? smoothed[smoothed.length - 1] : rawLabels[0];
+        if (previousMode === 'car' && (majorityMode === 'bus' || majorityMode === 'tram')) {
+            const tcCount = (counts.get('bus') || 0) + (counts.get('tram') || 0);
+            // Si le bus/tram ne représente pas au moins 70% de la fenêtre, on reste en voiture
+            if (tcCount / window.length < 0.7) {
+                majorityMode = 'car';
+            }
+        }
+
         smoothed.push(majorityMode);
     }
 
     return smoothed;
-
 }

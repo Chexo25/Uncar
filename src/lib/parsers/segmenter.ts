@@ -1,5 +1,4 @@
 import type { GPSPoint, Segment, TransportMode } from '$lib/types/gpx';
-// CHECKER LE CODE POUR LINSTANT JE TEST
 /**
  * Form segments from a list of GPS points and their corresponding transport mode labels.
  * A new segment is created when the transport mode changes or when a large time gap (> 120s) is detected between consecutive points.
@@ -20,7 +19,7 @@ export function buildSegments(
     let currentMode: TransportMode = labels[0];
     let segmentId = 1;
 
-    // 1. Découpage initial par changement de mode ou pause > 120s
+    //Cut with time gap > 120s or mode change
     for (let i = 1; i < points.length; i++) {
         const pt = points[i];
         const mode = labels[i];
@@ -46,7 +45,7 @@ export function buildSegments(
         segments.push(createSegment(segmentId, currentPoints, currentMode, currentConfidences));
     }
 
-    // 2. Reclassifier les courts morceaux 'bike' isolés entre deux phases 'car'
+    //Reclassify the segments: if a bike segment is less than 5 minutes and is surrounded by car segments, reclassify it as a car segment
     for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
         if (seg.mode === 'bike' && seg.durationSeconds < 300) {
@@ -58,7 +57,7 @@ export function buildSegments(
         }
     }
 
-    // 3. Fusionner les segments consécutifs qui ont désormais le même mode
+    //Merge the segments that are of the same mode and have a time gap of less than 120s
     const mergedSegments: Segment[] = [];
     for (const seg of segments) {
         if (mergedSegments.length === 0) {
@@ -78,12 +77,12 @@ export function buildSegments(
         }
     }
 
-    // 4. Filtrer les micro-segments parasites (< 10m ou < 10s)
+    //Filter out segments that are too short (less than 10 meters or less than 10 seconds)
     const validSegments = mergedSegments.filter(
         (seg) => seg.distanceMeters >= 10 && seg.durationSeconds >= 10
     );
 
-    // 5. Réindexer et retourner la liste nettoyée
+    //Index the segments starting from 1
     return validSegments.map((seg, idx) => ({ ...seg, id: idx + 1 }));
 }
 
