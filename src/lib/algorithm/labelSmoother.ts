@@ -34,6 +34,13 @@ export function applyLabelSmoother(rawLabels: TransportMode[], windowSize: numbe
             }
         });
 
+        // Protection de la marche
+        const walkCount = counts.get('walk') || 0;
+        if (walkCount / window.length >= 0.35 && rawLabels[i] === 'walk') {
+            smoothed.push('walk');
+            continue;
+        }
+
         // Inertie voiture : si le mode précédent était "car" et qu'on hésite avec bus/tram
         const previousMode = smoothed.length > 0 ? smoothed[smoothed.length - 1] : rawLabels[0];
         if (previousMode === 'car' && (majorityMode === 'bus' || majorityMode === 'tram')) {

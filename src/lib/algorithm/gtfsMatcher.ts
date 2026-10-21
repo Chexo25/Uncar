@@ -1,5 +1,5 @@
 import type { GPSPoint } from '$lib/types/gpx';
-import type { GTFSStop, GTFSTransportType, GTFSShapePoint } from '$lib/types/gtfs';
+import type { GTFSStop, GTFSTransportType, GTFSShapePoint, GTFSShape } from '$lib/types/gtfs';
 import { haversineDistance } from '$lib/parsers/gpxParser.ts';
 
 export interface BoundingBox {
@@ -58,16 +58,17 @@ function distanceToSegment(p: GPSPoint, a: GTFSShapePoint, b: GTFSShapePoint): n
 }
 
 /**
- * Pré-filtre les lignes GTFS qui croisent la BoundingBox globale de la trace GPX
+ * Pré-filtre les lignes GTFS qui croisent la BoundingBox globale de la trace GPX.
+ * Accepte un tableau ou une Map de GTFSShape.
  */
 export function filterShapesInBBox(
-    shapesMap: Map<string, GTFSShape>,
+    shapes: GTFSShape[] | Map<string, GTFSShape>,
     bbox: BoundingBox
 ): GTFSShape[] {
     const relevantShapes: GTFSShape[] = [];
+    const shapeList = Array.isArray(shapes) ? shapes : shapes.values();
 
-    for (const shape of shapesMap.values()) {
-        // Test de chevauchement BBox instantané (0 calcul géométrique)
+    for (const shape of shapeList) {
         if (
             shape.bbox.maxLat >= bbox.minLat &&
             shape.bbox.minLat <= bbox.maxLat &&
@@ -129,8 +130,8 @@ export function isPointOnGTFSShape(
  */
 export function matchPointsWithShapesFast(
     points: GPSPoint[],
-    relevantShapes: GTFSShapePoint[][],
-    step: number = 3,
+    relevantShapes: GTFSShape[],
+    step: number = 5,
     maxDistanceMeters: number = 15
 ): boolean[] {
     const results = new Array<boolean>(points.length).fill(false);

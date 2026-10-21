@@ -1,29 +1,26 @@
 <script lang="ts">
 	import { parseGPX } from '$lib/parsers/gpxParser';
-	import { computePointFeatures } from '$lib/algorithm/pointMetrics';
-	import { classifyPointFeatures } from '$lib/algorithm/classifier';
-	import { applyLabelSmoother } from '$lib/algorithm/labelSmoother';
-	import { buildSegments } from '$lib/parsers/segmenter';
-	import type { PointFeatures } from '$lib/algorithm/pointMetrics';
-    import type { GPSPoint, Segment } from '$lib/types';
+    import type { Segment } from '$lib/types';
 	import { onMount } from 'svelte';
 	import { parseGTFSStops, parseGTFSShapes } from '$lib/parsers/gtfsParser';	
-	import { getNearbyGTFSType, isPointOnGTFSShape, filterShapesInBBox, matchPointsWithShapesFast } from '$lib/algorithm/gtfsMatcher';
-	import type { GTFSStop, GTFSShapePoint, GTFSMode, GTFSShape } from '$lib/types/gtfs';
-	import type { TransportMode } from '$lib/types/gpx';
+	import GpxWorker from '$lib/workers/gpxWorker?worker';
+	import type { GTFSStop, GTFSShape } from '$lib/types/gtfs';
 
 	import {Button} from '$lib/components/ui/button';
 	import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '$lib/components/ui/card';
 	import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '$lib/components/ui/table';
     
     //reactive state variables
-    let points = $state<GPSPoint[]>([]);
+    let totalDistanceMeters = $state<number>(0);
+    let durationSeconds = $state<number>(0);
+    let maxSpeed = $state<number>(0);
 	let segments = $state<Segment[]>([]);
     let fileName = $state<string>('');
     let error = $state<string>('');
 	let gtfsStops = $state<GTFSStop[]>([]);
 	let filbleuShapes = $state<Map<string, GTFSShape>>(new Map());
 	let remiShapes = $state<Map<string, GTFSShape>>(new Map());
+	let isAnalyzing = $state<boolean>(false);
 
 	async function fetchText(url: string): Promise<string> {
 		const res = await fetch(url);
@@ -72,55 +69,90 @@
         if (!input.files || input.files.length === 0) return;
 
         const file = input.files[0];
+        fileName = file.name;
+        error = '';
+        isAnalyzing = true;
+
         const reader = new FileReader();
 
         reader.onload = (e) => {
             const content = e.target?.result as string;
-            if (content) {
-                try {
-                    const parsedPoints = parseGPX(content);
-                    const features = computePointFeatures(parsedPoints);
+            if (!content) {
+                isAnalyzing = false;
+                return;
+            }
 
-                    // Bounding Box globale
-                    const lats = parsedPoints.map((p) => p.lat);
-                    const lons = parsedPoints.map((p) => p.lon);
-                    const margin = 0.01;
-                    const bbox = {
-                        minLat: Math.min(...lats) - margin,
-                        maxLat: Math.max(...lats) + margin,
-                        minLon: Math.min(...lons) - margin,
-                        maxLon: Math.max(...lons) + margin
-                    };
+            try {
+                // 1. Parsing GPX rapide sur le thread principal
+                const parsedPoints = parseGPX(content);
 
-                    const activeFilbleuShapes = filterShapesInBBox(filbleuShapes, bbox);
-                    const activeRemiShapes = filterShapesInBBox(remiShapes, bbox);
+                // 2. Instanciation du Worker
+                const worker = new GpxWorker();
 
-                    const rawResults = features.map((f: PointFeatures, idx: number) => {
-                        const point = parsedPoints[idx];
+                // 3. Préparation des structures "Plain Objects" 100 % clonables pour postMessage
+                const plainStops = gtfsStops.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    lat: s.lat,
+                    lon: s.lon,
+                    type: s.type
+                }));
 
-                        const nearbyType = getNearbyGTFSType(point, gtfsStops, 20);
+                const plainFilbleuShapes = Array.from(filbleuShapes.values()).map((s) => ({
+                    id: s.id,
+                    points: s.points.map((p) => ({ lat: p.lat, lon: p.lon })),
+                    bbox: { ...s.bbox }
+                }));
 
-                        const isOnFilbleu = isPointOnGTFSShape(point, activeFilbleuShapes, 15);
-                        const isOnRemi = isPointOnGTFSShape(point, activeRemiShapes, 15);
+                const plainRemiShapes = Array.from(remiShapes.values()).map((s) => ({
+                    id: s.id,
+                    points: s.points.map((p) => ({ lat: p.lat, lon: p.lon })),
+                    bbox: { ...s.bbox }
+                }));
 
-                        let shapeType: GTFSMode | null = null;
-                        if (isOnFilbleu) shapeType = 'bus';
-                        if (isOnRemi) shapeType = 'train';
+                const plainPoints = parsedPoints.map((p) => ({
+                    lat: p.lat,
+                    lon: p.lon,
+                    ele: p.ele,
+                    time: p.time instanceof Date ? p.time.toISOString() : p.time,
+                    speed: p.speed,
+                    calculatedSpeed: p.calculatedSpeed,
+                    distance: p.distance
+                }));
 
-                        return classifyPointFeatures(f, nearbyType, shapeType);
-                    });
+                // 4. Écouteurs de messages et erreurs du Worker
+                worker.onmessage = (msgEvent: MessageEvent) => {
+                    isAnalyzing = false;
+                    if (msgEvent.data.success) {
+                        segments = msgEvent.data.segments;
+                        totalDistanceMeters = msgEvent.data.totalDistanceMeters;
+                        durationSeconds = msgEvent.data.durationSeconds;
+                        maxSpeed = msgEvent.data.maxSpeed;
+                    } else {
+                        error = msgEvent.data.error;
+                    }
+                    worker.terminate();
+                };
 
-                    const rawLabels = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.mode);
-                    const rawConfidences = rawResults.map((r: { mode: TransportMode; confidence: number }) => r.confidence);
+                worker.onerror = (err) => {
+                    console.error("Erreur dans le Web Worker :", err);
+                    error = "Erreur pendant l'analyse dans le Worker.";
+                    isAnalyzing = false;
+                    worker.terminate();
+                };
 
-                    const smoothedLabels = applyLabelSmoother(rawLabels, 45);
+                // 5. Envoi des données au Worker
+                worker.postMessage({
+                    parsedPoints: plainPoints,
+                    gtfsStops: plainStops,
+                    filbleuShapes: plainFilbleuShapes,
+                    remiShapes: plainRemiShapes
+                });
 
-                    points = parsedPoints;
-                    segments = buildSegments(parsedPoints, smoothedLabels, rawConfidences);
-                } catch (err) {
-                    console.error(err);
-                    error = "Erreur lors de l'analyse du fichier GPX.";
-                }
+            } catch (err) {
+                console.error("Erreur lors de la lecture du GPX :", err);
+                error = "Impossible de lire le fichier GPX.";
+                isAnalyzing = false;
             }
         };
 
@@ -133,33 +165,6 @@
 		const s = Math.floor(seconds % 60);
 		return `${m}m ${s}s`;
 	}
-
-    //File reader and parser
-    function processFile(file: File) {
-        if (!file.name.endsWith('.gpx')) {
-            error = 'Le fichier doit être au format GPX.';
-            return;
-        }
-        error = '';
-        fileName = file.name;
-
-        //navigator API to read the file as text
-        const reader = new FileReader();
-
-        reader.onload = (e) => {
-            const content = e.target?.result as string;
-            if (content) {
-                try {
-                    points = parseGPX(content);
-                } catch (err) {
-                    console.error(err);
-                    error = 'Erreur lors de l\'analyse du fichier GPX.';
-                }
-            }
-        };
-
-        reader.readAsText(file);
-    }
 
 	//Format the transport mode for display purposes
 	function formatMode(mode: string): { label: string; emoji: string } {
@@ -183,23 +188,7 @@
 		if (confidence >= 60) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
 		return 'bg-red-100 text-red-800 border-red-300';
 	}
-    
-    //derived reactives values
-    let totalDistanceMeters = $derived(
-        points.reduce((acc,p) => acc + (p.distance || 0), 0)
-    );
 
-    let durationSeconds = $derived(
-        points.length > 1 
-            ? (points[points.length - 1].time.getTime() - points[0].time.getTime()) / 1000
-            : 0
-    );
-
-    let maxSpeed = $derived(
-        points.length > 0
-            ? Math.max(...points.map((p) => (p.speed ?? p.calculatedSpeed ?? 0) * 3.6)) // convert m/s to km/h
-            : 0
-    );
 </script>
 
 <main class="max-w-4xl mx-auto p-6 space-y-6">
@@ -223,9 +212,14 @@
 			<!-- Bouton shadcn qui déclenche le clic sur l'input masqué -->
 			<Button 
 				variant="default" 
+				disabled={isAnalyzing}
 				onclick={() => document.getElementById('fileInput')?.click()}
 			>
-				Importer un fichier GPX
+				{#if isAnalyzing}
+					Analyse en cours...
+				{:else}
+					Importer un fichier GPX
+				{/if}
 			</Button>
 
 			{#if error}
@@ -240,6 +234,33 @@
 		</CardContent>
 	</Card>
 
+	{#if segments.length > 0}
+		<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription>Distance totale</CardDescription>
+					<CardTitle class="text-2xl">{(totalDistanceMeters / 1000).toFixed(2)} km</CardTitle>
+				</CardHeader>
+			</Card>
+
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription>Durée</CardDescription>
+					<CardTitle class="text-2xl">
+						{Math.floor(durationSeconds / 3600)}h {Math.floor((durationSeconds % 3600) / 60)}m
+					</CardTitle>
+				</CardHeader>
+			</Card>
+
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription>Vitesse max</CardDescription>
+					<CardTitle class="text-2xl">{maxSpeed.toFixed(1)} km/h</CardTitle>
+				</CardHeader>
+			</Card>
+		</div>
+	{/if}
+
 	<!-- Tableau des Segments Détectés -->
 	{#if segments.length > 0}
 		<Card class="mt-6">
@@ -247,7 +268,7 @@
 				<CardTitle>Segments détectés ({segments.length})</CardTitle>
 			</CardHeader>
 			<CardContent>
-				<div class="max-h-[300px] overflow-y-auto border rounded-md">
+				<div class="border rounded-md">
 					<Table>
 						<TableHeader class="sticky top-0 bg-background z-10">
 							<TableRow>
@@ -291,71 +312,6 @@
 									<TableCell class="text-right">{seg.distanceMeters.toFixed(1)} m</TableCell>
 									<TableCell class="text-right">{formatDuration(seg.durationSeconds)}</TableCell>
 									<TableCell class="text-right">{(seg.avgSpeed * 3.6).toFixed(1)} km/h</TableCell>
-								</TableRow>
-							{/each}
-						</TableBody>
-					</Table>
-				</div>
-			</CardContent>
-		</Card>
-	{/if}
-
-	<!-- Statistiques et Tableau des points -->
-	{#if points.length > 0}
-		<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription>Nombre de points</CardDescription>
-					<CardTitle class="text-2xl">{points.length}</CardTitle>
-				</CardHeader>
-			</Card>
-
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription>Distance totale</CardDescription>
-					<CardTitle class="text-2xl">{(totalDistanceMeters / 1000).toFixed(2)} km</CardTitle>
-				</CardHeader>
-			</Card>
-
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription>Durée</CardDescription>
-					<CardTitle class="text-2xl">
-						{Math.floor(durationSeconds / 60)}m {Math.round(durationSeconds % 60)}s
-					</CardTitle>
-				</CardHeader>
-			</Card>
-
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription>Vitesse max</CardDescription>
-					<CardTitle class="text-2xl">{maxSpeed.toFixed(1)} km/h</CardTitle>
-				</CardHeader>
-			</Card>
-		</div>
-
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-lg">Aperçu des 10 premiers points</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<div class="max-h-[400px] overflow-y-auto border rounded-md">
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Horodatage</TableHead>
-								<TableHead>Latitude / Longitude</TableHead>
-								<TableHead class="text-right">Distance (m)</TableHead>
-								<TableHead class="text-right">Vitesse calc. (km/h)</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{#each points as pt}
-								<TableRow>
-									<TableCell>{pt.time.toLocaleTimeString()}</TableCell>
-									<TableCell class="font-mono text-xs">{pt.lat.toFixed(5)}, {pt.lon.toFixed(5)}</TableCell>
-									<TableCell class="text-right">{(pt.distance || 0).toFixed(1)}</TableCell>
-									<TableCell class="text-right">{((pt.calculatedSpeed || 0) * 3.6).toFixed(1)}</TableCell>
 								</TableRow>
 							{/each}
 						</TableBody>
