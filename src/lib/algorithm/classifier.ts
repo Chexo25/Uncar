@@ -1,6 +1,6 @@
 import type { TransportMode } from '$lib/types/gpx';
 import type { PointFeatures } from './pointMetrics';
-import type { GTFSTransportType } from '$lib/types/gtfs';
+import type { GTFSMode } from '$lib/types/gtfs';
 
 export interface ClassificationResult {
 	mode: TransportMode;
@@ -16,8 +16,8 @@ export interface ClassificationResult {
  */
 export function classifyPointFeatures(
     features: PointFeatures,
-    nearbyType: GTFSTransportType | null = null,
-    shapeType: GTFSTransportType | null = null
+    nearbyType: GTFSMode | null = null,
+    shapeType: GTFSMode | null = null
 ): ClassificationResult {
     const avgSpeed = features.localAvgSpeed;
     const maxSpeed = features.localMaxSpeed;
@@ -27,45 +27,49 @@ export function classifyPointFeatures(
 
     // 0. IMMOBILE / PAUSE (Bruit GPS sans déplacement réel)
     if (avgSpeed < 1.2) {
+        if (nearbyType === 'bus' || nearbyType === 'tram') {
+            return { mode: nearbyType, confidence: 70 };
+        }
         return { mode: 'walk', confidence: 10 }; // Très faible confiance pour ne pas polluer
     }
 
     //1. WALK (< 6 km/h)
-    if (avgSpeed <= 7 && maxSpeed <= 15) {
+    if (avgSpeed <= 7 && maxSpeed <= 10) {
         return { mode: 'walk', confidence: 85 };
     }
 
     //2. PUBLIC TRANSPORT WITH GTFS
     // Si on a à la fois l'arrêt ET la ligne, ou si nearbyType est présent
-    if (nearbyType && avgSpeed > 8) {
-        let confidence = 80;
-        if (headingChange < 10) confidence += 10;
-        if (shapeType && nearbyType === shapeType) confidence = 95;
-
-        if (nearbyType === 'train' && avgSpeed > 25) return { mode: 'train', confidence };
-        if (nearbyType === 'tram') return { mode: 'tram', confidence };
-        if (nearbyType === 'bus') return { mode: 'bus', confidence };
-    }
-
-    // 3. VOITURE A FAIBLE VITESSE / TRAFIC DENSE
-    if (avgSpeed > 30 && (features.localMaxAcceleration > 1.2 || headingChange < 5)) {
-        return { mode: 'car', confidence: avgSpeed > 45 ? 95 : 85 };
-    }
-
-    // 4. Vélo ou voiture lente (vitesse moyenne basse, pas de pic de voiture)
-    if (avgSpeed <= 30 && maxSpeed <= 45) {
-        if (headingChange > 10 && features.localMaxAcceleration < 1.0) {
-            return { mode: 'bike', confidence: 80 };
+    if (shapeType) {
+        // Si la vitesse dépasse 55 km/h sur du Filbleu (en ville), ce n'est PAS un bus Filbleu -> c'est une voiture !
+        if (maxSpeed > 55 && shapeType === 'bus') {
+            return { mode: 'car', confidence: 90 };
         }
-        if (features.localMaxAcceleration > 1.5 && headingChange < 8) {
-            return { mode: 'car', confidence: 75 };
-        }
-        return { mode: 'bike', confidence: 60 };
-    }
 
-    // 5. Voiture : pic élevé ET vitesse moyenne soutenue
+        // Un vélo qui longe un axe GTFS sans s'arrêter aux arrêts reste un vélo
+        if (shapeType === 'bus' && !nearbyType && avgSpeed <= 25) {
+            return { mode: 'bike', confidence: 75 };
+        }
+
+        if (nearbyType === shapeType || (avgSpeed >= 25 && avgSpeed <= 55)) {
+            return { mode: shapeType as any, confidence: nearbyType ? 90 : 75 };
+        }
+    
+    }
+    
+    // 3. VOITURE FRANCHEMENT DÉTECTÉE (Pic de vitesse ou vitesse moyenne élevée)
     if (maxSpeed > 45 && avgSpeed > 25) {
         return { mode: 'car', confidence: maxSpeed > 60 ? 95 : 85 };
+    }
+
+    // 4. VOITURE EN VILLE / PARKING (Vitesse faible mais cap très stable)
+    if (avgSpeed >= 12 && headingChange < 7) {
+        return { mode: 'car', confidence: 75 };
+    }
+
+    // 5. VÉLO (Vitesse modérée avec variations de cap)
+    if (avgSpeed <= 23 && maxSpeed <= 38) {
+        return { mode: 'bike', confidence: 75 };
     }
 
     return { mode: 'bike', confidence: 60 };

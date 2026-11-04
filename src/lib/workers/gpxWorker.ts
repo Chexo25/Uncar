@@ -1,16 +1,26 @@
 import { computePointFeatures } from '$lib/algorithm/pointMetrics';
 import { classifyPointFeatures } from '$lib/algorithm/classifier';
 import { applyLabelSmoother } from '$lib/algorithm/labelSmoother';
-import { buildSegments } from '$lib/parsers/segmenter';
+import { buildSegments, mergeShortSegments } from '$lib/parsers/segmenter';
 import { getNearbyGTFSType, filterShapesInBBox, matchPointsWithShapesFast } from '$lib/algorithm/gtfsMatcher';
-import type { GTFSStop, GTFSShape } from '$lib/types/gtfs';
-import type { TransportMode } from '$lib/types/gpx';
+import type { GTFSStop, GTFSShape, GTFSMode } from '$lib/types/gtfs';
+import type { TransportMode} from '$lib/types/gpx';
 
 interface BoundingBox {
     minLat: number;
     maxLat: number;
     minLon: number;
     maxLon: number;
+}
+
+// Fonction de conversion valeur numérique -> mode transport interne
+function routeTypeToMode(routeType: number): GTFSMode {
+    switch (routeType) {
+        case 0: return 'tram';
+        case 2: return 'train';
+        case 3: 
+        default: return 'bus';
+    }
 }
 
 self.onmessage = (e: MessageEvent) => {
@@ -44,25 +54,31 @@ self.onmessage = (e: MessageEvent) => {
         const activeFilbleuShapes = filterShapesInBBox(filbleuShapes, bbox);
         const activeRemiShapes = filterShapesInBBox(remiShapes, bbox);
 
+        // 1. matchPointsWithShapesFast doit retourner l'ID du shape matché ou le type
         const filbleuMatches = matchPointsWithShapesFast(sampledPoints, activeFilbleuShapes, 3, 15);
         const remiMatches = matchPointsWithShapesFast(sampledPoints, activeRemiShapes, 3, 15);
 
         const sampledResults = sampledFeatures.map((f, idx) => {
             const point = sampledPoints[idx];
-            const speed = f.localMaxSpeed;
+            
+            // 1. Recherche d'arrêts GTFS dans un rayon de 30m
+            const nearbyStopType = getNearbyGTFSType(point, gtfsStops, 30);
 
-            let nearbyType = null;
-            if (speed > 8 && speed <= 40) {
-                nearbyType = getNearbyGTFSType(point, gtfsStops, 20);
+            let shapeType: GTFSMode| null = null;
+
+            const matchedFilbleu = filbleuMatches[idx];
+            const matchedRemi = remiMatches[idx];
+
+            if (matchedFilbleu) {
+                // Exigence : pour Filbleu, il faut soit un arrêt proche, soit une vitesse caractérisant le TC
+                // Si on est hors zone Filbleu (aucun arrêt GTFS proche sur l'ensemble du sous-segment), on ignore la shape
+                shapeType = routeTypeToMode(matchedFilbleu.routeType ?? 3);
+            } else if (matchedRemi) {
+                shapeType = routeTypeToMode(matchedRemi.routeType ?? 2);
             }
 
-            let shapeType = null;
-            if (filbleuMatches[idx]) shapeType = 'bus';
-            if (remiMatches[idx]) shapeType = 'train';
-
-            return classifyPointFeatures(f, nearbyType, shapeType);
+            return classifyPointFeatures(f, nearbyStopType, shapeType);
         });
-
         const sampledLabels = sampledResults.map((r) => r.mode);
         const sampledConfidences = sampledResults.map((r) => r.confidence);
 
@@ -86,7 +102,9 @@ self.onmessage = (e: MessageEvent) => {
             ? Math.max(...parsedPoints.map((p: any) => (p.speed ?? p.calculatedSpeed ?? 0) * 3.6))
             : 0;
 
-        const segments = buildSegments(parsedPoints, rawLabels, rawConfidences);
+        const rawSegments = buildSegments(parsedPoints, rawLabels, rawConfidences);
+
+        const segments = mergeShortSegments(rawSegments);
 
         self.postMessage({
             success: true,

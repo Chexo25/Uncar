@@ -18,13 +18,10 @@ export interface GTFSShapePoint {
 	sequence: number;
 }
 
+
 export interface GTFSShape {
     id: string;
     points: GTFSShapePoint[];
-    bbox: {
-        minLat: number;
-        maxLat: number;
-        minLon: number;
-        maxLon: number;
-    };
+    bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number };
+    transportType?: GTFSMode; // 'bus' | 'tram' | 'train'
 }

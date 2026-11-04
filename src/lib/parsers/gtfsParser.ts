@@ -65,12 +65,30 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 }
 
 /**
- * Parse a CSV GTFS shapes file and return a map of shape_id to a GTFSShape object containing points and bbox.
- * 
- * @param csvContent The content of the CSV file as a string.
- * @returns A map where the key is the shape_id and the value is a GTFSShape object.
+ * Mapping direct entre le code route_type GTFS (number) et les identifiants
+ * 0 = Tram, 3 = Bus, 2 = Train
  */
-export function parseGTFSShapes(csvContent: string): Map<string, GTFSShape> {
+function getShapeRouteType(shapeId: string, network: 'filbleu' | 'remi'): number {
+	const lowerId = shapeId.toLowerCase();
+	
+	if (network === 'filbleu') {
+		// Ligne A du tram Filbleu -> route_type 0
+		if (lowerId.includes('tram') || lowerId.includes('line_a') || shapeId.startsWith('TRAM')) {
+			return 0; 
+		}
+		return 3; // Bus Filbleu -> route_type 3
+	} else if (network === 'remi') {
+		// Train SNCF / TER Rémi -> route_type 2
+		if (lowerId.includes('sncf') || lowerId.includes('ter') || lowerId.includes('train')) {
+			return 2; 
+		}
+		return 3; // Car interurbain -> route_type 3
+	}
+	
+	return 3;
+}
+
+export function parseGTFSShapes(csvContent: string, network: 'filbleu' | 'remi' = 'filbleu'): Map<string, GTFSShape> {
     const lines = csvContent.split('\n');
     const rawShapesMap = new Map<string, GTFSShapePoint[]>();
     const shapesMap = new Map<string, GTFSShape>();
@@ -103,7 +121,6 @@ export function parseGTFSShapes(csvContent: string): Map<string, GTFSShape> {
         }
     }
 
-    // Order points by sequence and calculate bbox once per shape_id
     for (const [shapeId, points] of rawShapesMap.entries()) {
         points.sort((a, b) => a.sequence - b.sequence);
 
@@ -121,7 +138,8 @@ export function parseGTFSShapes(csvContent: string): Map<string, GTFSShape> {
         shapesMap.set(shapeId, {
             id: shapeId,
             points,
-            bbox: { minLat, maxLat, minLon, maxLon }
+            bbox: { minLat, maxLat, minLon, maxLon },
+            routeType: getShapeRouteType(shapeId, network) // Valeur numérique : 0, 2 ou 3
         });
     }
 
