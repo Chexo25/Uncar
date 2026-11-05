@@ -1,0 +1,46 @@
+name: Build OpenTripPlanner Graph
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-graph:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code (avec support LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configuration de Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Téléchargement d'OTP et préparation des données
+        run: |
+          mkdir -p otp-data
+          
+          # Téléchargement d'OTP 2.5.0
+          wget -q https://repo1.maven.org/maven2/org/opentripplanner/otp/2.5.0/otp-2.5.0-shaded.jar -O otp-data/otp.jar
+          
+          # Téléchargement de la carte OSM Centre-Val de Loire
+          wget -q https://download.geofabrik.de/europe/france/centre-latest.osm.pbf -O otp-data/centre.osm.pbf
+          
+          # Copie des fichiers GTFS versionnés avec LFS vers le dossier de build OTP
+          cp -r static/gtfs/* otp-data/ 2>/dev/null || true
+
+      - name: Compilation du graphe OTP
+        run: |
+          java -Xmx12g -jar otp-data/otp.jar --build --save otp-data
+
+      - name: Sauvegarde de l'artefact graph.obj
+        uses: actions/upload-artifact@v4
+        with:
+          name: otp-graph-centre
+          path: otp-data/graph.obj
+          retention-days: 7
