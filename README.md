@@ -1,56 +1,58 @@
-# sv
+## 🏗️ Architecture & Flux de Données
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+L'application repose sur une architecture découplée associant un frontend/backend web moderne (**SvelteKit**) et un moteur de calcul d'itinéraire multimodal performant (**OpenTripPlanner 2.5**).
 
-## Creating a project
+Pour contourner les contraintes de mémoire RAM lors de la phase de compilation du réseau (build du graphe), le processus est scindé entre une intégration continue sur **GitHub Actions** (chargée des traitements lourds) et un environnement local/production léger (mode chargement seul).
 
-If you're seeing this, you've probably already done this step. Congrats!
+---
 
-```sh
-# create a new project
-npx sv create my-app
-```
+### 🧱 Composants du Projet
 
-To recreate this project with the same configuration:
+| Composant / Fichier | Rôle technique | Rôle fonctionnel |
+| :--- | :--- | :--- |
+| **`otp-data/graph.obj`** | Structure de données compilée (OSM + GTFS) | La carte mémoire pré-calculée de la région Centre-Val de Loire. |
+| **`OTP (Port 8080)`** | Moteur de calcul de cheminement (Java) | Le calculateur d'itinéraires en arrière-plan. |
+| **`src/lib/types/otp.ts`** | Interfaces TypeScript | Le contrat de données qui valide la structure JSON reçue d'OTP. |
+| **`src/lib/server/otp.ts`** | Service d'appel HTTP (`fetch`) | Le connecteur qui formate et envoie la requête à OTP. |
+| **`src/routes/api/route/+server.ts`** | Route API SvelteKit (`POST`) | La passerelle entre le navigateur et le serveur OTP. |
 
-```sh
-# recreate this project
-bun x sv@1.1.1 create --template minimal --types ts --install bun Uncar
-```
+---
 
-## Adding features
+### 🔄 Flux de Données Global
 
-Add features to your project with `sv add`:
+Le schéma ci-dessous détaille le cycle de vie des données, depuis la compilation du graphe en CI jusqu'à l'affichage de l'itinéraire sur la carte :
 
-```sh
-npx sv add
-```
+```text
+1. PHASE DE PRÉ-CALCUL (CI / GitHub Actions - Machine 16 Go RAM)
+   [ OpenStreetMap (.pbf) ] + [ GTFS Filbleu & Rémi (.zip/.txt) ]
+                                 │
+                                 ▼
+                     java -Xmx12g -jar otp.jar --build
+                                 │
+                                 ▼
+                       [ otp-data/graph.obj ]  (Artefact généré)
 
-For example, to add Tailwind CSS:
 
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+2. PHASE D'EXÉCUTION (Environnement Local / Docker - RAM ~3.5 Go)
+   ┌─────────────────────────────────────────────────────────┐
+   │ 1. Navigateur (Client Svelte)                           │
+   │    Utilisateur sélectionne départ/arrivée sur la carte  │
+   └────────────────────────────┬────────────────────────────┘
+                                │ POST /api/route (JSON)
+                                ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │ 2. Serveur SvelteKit (Backend Node.js - :5173)          │
+   │    Validation des requêtes et proxy vers le moteur      │
+   └────────────────────────────┬────────────────────────────┘
+                                │ GET /otp/routers/default/plan
+                                ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │ 3. Instance OpenTripPlanner (Mode --load - :8080)       │
+   │    Recherche de parcours via graph.obj en RAM           │
+   └────────────────────────────┬────────────────────────────┘
+                                │ Réponse JSON (Itinéraires, legs, polyline)
+                                ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │ 4. Affichage Frontend                                   │
+   │    Décodage de la géométrie et tracé Leaflet/MapLibre    │
+   └─────────────────────────────────────────────────────────┘
