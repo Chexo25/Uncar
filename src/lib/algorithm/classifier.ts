@@ -23,53 +23,52 @@ export function classifyPointFeatures(
     const maxSpeed = features.localMaxSpeed;
     const headingChange = features.localAvgBearingChange;
 
-    const detectedTCMode = nearbyType || shapeType;
-
     // 0. IMMOBILE / PAUSE (Bruit GPS sans déplacement réel)
     if (avgSpeed < 1.2) {
-        if (nearbyType === 'bus' || nearbyType === 'tram') {
-            return { mode: nearbyType, confidence: 70 };
-        }
-        return { mode: 'walk', confidence: 10 }; // Très faible confiance pour ne pas polluer
+        // Une proximité avec un arrêt ou une shape ne permet pas de distinguer
+        // un passager arrêté d'un véhicule de transport en commun.
+        return { mode: 'walk', confidence: 10 };
     }
 
-    //1. WALK (< 6 km/h)
+    // WALK (< 6 km/h)
     if (avgSpeed <= 7 && maxSpeed <= 10) {
         return { mode: 'walk', confidence: 85 };
     }
 
-    //2. PUBLIC TRANSPORT WITH GTFS
-    // Si on a à la fois l'arrêt ET la ligne, ou si nearbyType est présent
+    // Un arrêt du même type que la shape est une confirmation forte du TC.
+    // Cette exception doit précéder le profil vélo : un bus peut rouler lentement
+    // entre deux arrêts, alors qu'une simple shape ne suffit pas à l'identifier.
+    if (shapeType && nearbyType === shapeType) {
+        return { mode: shapeType, confidence: 90 };
+    }
+
+    // VÉLO : un cycliste peut suivre exactement une ligne de bus.
+    // Ce profil doit donc être reconnu avant une shape GTFS seule.
+    if (avgSpeed <= 23 && maxSpeed <= 50) {
+        return { mode: 'bike', confidence: 75 };
+    }
+
+    // PUBLIC TRANSPORT WITH GTFS
+    // Une shape seule n'est pas suffisante : un vélo peut suivre exactement
+    // le même axe qu'un bus. Il faut un arrêt du même type ou une vitesse
+    // incompatible avec le vélo pour confirmer le transport en commun.
     if (shapeType) {
-        // Si la vitesse dépasse 55 km/h sur du Filbleu (en ville), ce n'est PAS un bus Filbleu -> c'est une voiture !
         if (maxSpeed > 55 && shapeType === 'bus') {
             return { mode: 'car', confidence: 90 };
         }
 
-        // Un vélo qui longe un axe GTFS sans s'arrêter aux arrêts reste un vélo
-        if (shapeType === 'bus' && !nearbyType && avgSpeed <= 25) {
-            return { mode: 'bike', confidence: 75 };
+        if (avgSpeed >= 25 && avgSpeed <= 55) {
+            return { mode: shapeType, confidence: 75 };
         }
-
-        if (nearbyType === shapeType || (avgSpeed >= 25 && avgSpeed <= 55)) {
-            return { mode: shapeType as any, confidence: nearbyType ? 90 : 75 };
-        }
-    
-    }
-    
-    // 3. VOITURE FRANCHEMENT DÉTECTÉE (Pic de vitesse ou vitesse moyenne élevée)
-    if (maxSpeed > 45 && avgSpeed > 25) {
-        return { mode: 'car', confidence: maxSpeed > 60 ? 95 : 85 };
     }
 
-    // 4. VOITURE EN VILLE / PARKING (Vitesse faible mais cap très stable)
-    if (avgSpeed >= 12 && headingChange < 7) {
+    if (avgSpeed >= 12 && maxSpeed > 38 && headingChange < 15) {
         return { mode: 'car', confidence: 75 };
     }
 
-    // 5. VÉLO (Vitesse modérée avec variations de cap)
-    if (avgSpeed <= 23 && maxSpeed <= 38) {
-        return { mode: 'bike', confidence: 75 };
+    // 4. VOITURE FRANCHEMENT DÉTECTÉE (Pic de vitesse ou vitesse moyenne élevée)
+    if (maxSpeed > 45 && avgSpeed > 25) {
+        return { mode: 'car', confidence: maxSpeed > 60 ? 95 : 85 };
     }
 
     return { mode: 'bike', confidence: 60 };

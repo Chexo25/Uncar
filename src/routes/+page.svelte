@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { parseGPX } from '$lib/parsers/gpxParser';
-    import type { Segment } from '$lib/types';
+    import type { Segment } from '$lib/types/gpx';
 	import { onMount } from 'svelte';
 	import { parseGTFSStops, parseGTFSShapes } from '$lib/parsers/gtfsParser';	
 	import GpxWorker from '$lib/workers/gpxWorker?worker';
@@ -52,8 +52,8 @@
 			gtfsStops = [...filbleuStops, ...remiStops];
 
 			//shapes parsing
-			filbleuShapes = parseGTFSShapes(filbleuShapesTxt);
-			remiShapes = parseGTFSShapes(remiShapesTxt);
+			filbleuShapes = parseGTFSShapes(filbleuShapesTxt, 'filbleu');
+			remiShapes = parseGTFSShapes(remiShapesTxt, 'remi');
 
 			console.log(
 				`GTFS chargé : ${gtfsStops.length} arrêts | ${filbleuShapes.size} lignes Filbleu | ${remiShapes.size} lignes Rémi.`
@@ -101,19 +101,20 @@
                 const plainFilbleuShapes = Array.from(filbleuShapes.values()).map((s) => ({
                     id: s.id,
                     points: s.points.map((p) => ({ lat: p.lat, lon: p.lon })),
-                    bbox: { ...s.bbox }
+                    bbox: { ...s.bbox },
+                    routeType: s.routeType
                 }));
 
                 const plainRemiShapes = Array.from(remiShapes.values()).map((s) => ({
                     id: s.id,
                     points: s.points.map((p) => ({ lat: p.lat, lon: p.lon })),
-                    bbox: { ...s.bbox }
+                    bbox: { ...s.bbox },
+                    routeType: s.routeType
                 }));
 
                 const plainPoints = parsedPoints.map((p) => ({
                     lat: p.lat,
                     lon: p.lon,
-                    ele: p.ele,
                     time: p.time instanceof Date ? p.time.toISOString() : p.time,
                     speed: p.speed,
                     calculatedSpeed: p.calculatedSpeed,
@@ -187,6 +188,16 @@
 		if (confidence >= 80) return 'bg-green-100 text-green-800 border-green-300';
 		if (confidence >= 60) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
 		return 'bg-red-100 text-red-800 border-red-300';
+	}
+
+	function formatSegmentTime(time: Date): string {
+		return time.toLocaleString([], {
+			day: '2-digit',
+			month: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		});
 	}
 
 </script>
@@ -307,8 +318,8 @@
 										</span>
 									</TableCell>
 
-									<TableCell>{seg.startTime.toLocaleTimeString()}</TableCell>
-									<TableCell>{seg.endTime.toLocaleTimeString()}</TableCell>
+									<TableCell>{formatSegmentTime(seg.startTime)}</TableCell>
+									<TableCell>{formatSegmentTime(seg.endTime)}</TableCell>
 									<TableCell class="text-right">{seg.distanceMeters.toFixed(1)} m</TableCell>
 									<TableCell class="text-right">{formatDuration(seg.durationSeconds)}</TableCell>
 									<TableCell class="text-right">{(seg.avgSpeed * 3.6).toFixed(1)} km/h</TableCell>

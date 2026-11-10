@@ -55,7 +55,7 @@ export function mergeContiguousSameMode(segments: Segment[]): Segment[] {
         const gap = (current.startTime.getTime() - prev.endTime.getTime()) / 1000;
 
         // On ne fusionne le même mode QUE si le temps mort entre les deux est négligeable (< 30s)
-        if (prev.mode === current.mode && gap <= 180) {
+        if (prev.mode === current.mode && gap <= 30) {
             prev.points = [...prev.points, ...current.points];
             prev.endTime = current.endTime;
             prev.durationSeconds = (prev.endTime.getTime() - prev.startTime.getTime()) / 1000;
@@ -96,14 +96,6 @@ export function mergeShortSegments(rawSegments: Segment[]): Segment[] {
                 // Temps mort exact (en secondes) entre la fin de 'prev' et le début de 'current'
                 const gapSeconds = (current.startTime.getTime() - prev.endTime.getTime()) / 1000;
                 const maxAllowedGap = getMaxGapThreshold(prev.mode, current.mode);
-                const next = i < segments.length - 1 ? segments[i + 1] : null;
-
-                // Règle du sandwich : si 'prev' et 'next' sont du MÊME mode (ex: Vélo) et entourant 'current' (Bus)
-                if (prev && next && prev.mode === next.mode && current.mode !== prev.mode) {
-                    if (current.durationSeconds < 420) { // Absorbe les bruits jusqu'à 7 min
-                        shouldAbsorb = true;
-                    }
-                }
                 // Si le gap entre la fin de prev et le début de current est INFERIEUR ou EGAL au seuil
                 // (ex: 2 secondes <= 60 secondes pour Bus->Vélo), la transition est invalide -> fusion !
                 if (maxAllowedGap !== null && gapSeconds <= maxAllowedGap) {
@@ -158,12 +150,34 @@ export function buildSegments(
     const keyOf = (c: { label: TransportMode; conf: number }) =>
         c.conf <= STILL_CONF ? 'still' : c.label;
 
+    const isStationary = (index: number): boolean => {
+        const pointTime = combined[index].pt.time.getTime();
+        const windowStart = pointTime - 90_000;
+        let first = index;
+
+        while (first > 0 && combined[first - 1].pt.time.getTime() >= windowStart) {
+            first--;
+        }
+
+        const elapsed = (pointTime - combined[first].pt.time.getTime()) / 1000;
+        if (elapsed < 60) return false;
+
+        const distance = combined
+            .slice(first, index + 1)
+            .reduce((total, item) => total + (item.pt.distance || 0), 0);
+
+        return distance / elapsed < 0.35;
+    };
+
     const initialSegments: Segment[] = [];
+    const STATIONARY_SPLIT_SECONDS = 180;
     let currentPoints: GPSPoint[] = [combined[0].pt];
     let currentConfidences: number[] = [combined[0].conf];
     let currentKey: string = keyOf(combined[0]);
     let currentMode: TransportMode = combined[0].label;
     let segmentId = 1;
+    let stationaryPoints: typeof combined = [];
+    let stationarySince: number | null = null;
 
     const flush = () => {
         if (currentKey !== 'still' && currentPoints.length > 1) {
@@ -175,10 +189,38 @@ export function buildSegments(
         const item = combined[i];
         const prevItem = combined[i - 1];
         const timeGap = (item.pt.time.getTime() - prevItem.pt.time.getTime()) / 1000;
-        const key = keyOf(item);
-        const stalled = timeGap > 60 && (item.pt.distance || 0) / timeGap < 0.8;
+        const stationary = isStationary(i);
 
-        if (key !== currentKey || timeGap > 60 || stalled) {
+        if (stationary) {
+            stationaryPoints.push(item);
+            stationarySince ??= item.pt.time.getTime();
+            continue;
+        }
+
+        if (stationaryPoints.length > 0) {
+            const stationaryDuration = stationarySince
+                ? (prevItem.pt.time.getTime() - stationarySince) / 1000
+                : 0;
+            const splitAfterStop = stationaryDuration >= STATIONARY_SPLIT_SECONDS;
+
+            if (splitAfterStop) {
+                flush();
+                currentPoints = [];
+                currentConfidences = [];
+                currentKey = 'still';
+            } else {
+                currentPoints.push(...stationaryPoints.map((entry) => entry.pt));
+                currentConfidences.push(...stationaryPoints.map((entry) => entry.conf));
+            }
+
+            stationaryPoints = [];
+            stationarySince = null;
+        }
+
+        const key = keyOf(item);
+        const stalled = timeGap > 180 && (item.pt.distance || 0) / timeGap < 0.8;
+
+        if (key !== currentKey || stalled) {
             flush();
             currentPoints = [item.pt];
             currentConfidences = [item.conf];
@@ -189,6 +231,19 @@ export function buildSegments(
             currentConfidences.push(item.conf);
         }
     }
+
+    if (stationaryPoints.length > 0) {
+        const lastTime = combined[combined.length - 1].pt.time.getTime();
+        const stationaryDuration = stationarySince
+            ? (lastTime - stationarySince) / 1000
+            : 0;
+
+        if (stationaryDuration < STATIONARY_SPLIT_SECONDS) {
+            currentPoints.push(...stationaryPoints.map((entry) => entry.pt));
+            currentConfidences.push(...stationaryPoints.map((entry) => entry.conf));
+        }
+    }
+
     flush();
 
     // 1. On regroupe uniquement les segments contigus sans pause
@@ -213,6 +268,7 @@ export function buildSegments(
         
         return seg.durationSeconds >= 15;
     })
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
         .map((seg, idx) => ({ ...seg, id: idx + 1 }));
 }
 

@@ -1,13 +1,4 @@
-import type {GPSPoint, Segment} from '../types/gpx';
-
-export interface SegmentMetrics {
-    avgSpeed: number; //in km/h
-    maxSpeed: number; //in km/h
-    p95Speed: number; //in km/h
-    avgAcceleration: number; //in m/s²
-    maxAcceleration: number; //in m/s²
-    avgBearingChange: number; //in degrees per point
-}
+import type { GPSPoint } from '../types/gpx';
 
 /**
  * Calculates the bearing in degrees between two GPS points (found on internet)

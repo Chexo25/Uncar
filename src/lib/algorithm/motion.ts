@@ -38,25 +38,6 @@ export function windowedSpeeds(points: GPSPoint[], windowSec = 20): number[] {
     return out;
 }
 
-/**
- * Retire les points immobiles au début et à la fin d'un segment.
- * Retourne [] si tout le segment est quasi immobile.
- */
-export function trimStationaryEnds(points: GPSPoint[], minSpeedKmh = 2.5): GPSPoint[] {
-    if (points.length < 3) return points;
-
-    const minSpeed = minSpeedKmh / 3.6; // m/s
-    const v = windowedSpeeds(points, 20);
-
-    let s = 0;
-    let e = points.length - 1;
-    while (s < e && v[s] < minSpeed) s++;
-    while (e > s && v[e] < minSpeed) e--;
-
-    if (e <= s) return [];
-    return points.slice(s, e + 1);
-}
-
 function percentile(sorted: number[], p: number): number {
     if (sorted.length === 0) return 0;
     return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];

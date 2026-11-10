@@ -1,17 +1,11 @@
 import { computePointFeatures } from '$lib/algorithm/pointMetrics';
 import { classifyPointFeatures } from '$lib/algorithm/classifier';
 import { applyLabelSmoother } from '$lib/algorithm/labelSmoother';
-import { buildSegments, mergeShortSegments } from '$lib/parsers/segmenter';
+import { buildSegments } from '$lib/parsers/segmenter';
+import { reclassifySegment } from '$lib/algorithm/motion';
 import { getNearbyGTFSType, filterShapesInBBox, matchPointsWithShapesFast } from '$lib/algorithm/gtfsMatcher';
 import type { GTFSStop, GTFSShape, GTFSMode } from '$lib/types/gtfs';
 import type { TransportMode} from '$lib/types/gpx';
-
-interface BoundingBox {
-    minLat: number;
-    maxLat: number;
-    minLon: number;
-    maxLon: number;
-}
 
 // Fonction de conversion valeur numérique -> mode transport interne
 function routeTypeToMode(routeType: number): GTFSMode {
@@ -34,13 +28,8 @@ self.onmessage = (e: MessageEvent) => {
         }));
 
         const step = parsedPoints.length > 10000 ? 5 : 1;
-        const sampledPoints = step > 1 ? parsedPoints.filter((_, idx: number) => idx % step === 0) : parsedPoints;
+        const sampledPoints = step > 1 ? parsedPoints.filter((_point: { lat: number; lon: number }, idx: number) => idx % step === 0) : parsedPoints;
         const sampledFeatures = computePointFeatures(sampledPoints);
-        //To test
-        const t0 = new Date('2026-10-17T15:55:00Z').getTime(); // 17:55 locale
-        const idx = sampledPoints.findIndex((p: any) => p.time.getTime() >= t0);
-        console.log('features marche:', sampledFeatures.slice(idx, idx + 5));
-
         const lats = sampledPoints.map((p: any) => p.lat);
         const lons = sampledPoints.map((p: any) => p.lon);
         const margin = 0.01;
@@ -104,7 +93,10 @@ self.onmessage = (e: MessageEvent) => {
 
         const rawSegments = buildSegments(parsedPoints, rawLabels, rawConfidences);
 
-        const segments = mergeShortSegments(rawSegments);
+        const segments = rawSegments.map((segment) => {
+            const mode = reclassifySegment(segment);
+            return mode === segment.mode ? segment : { ...segment, mode };
+        });
 
         self.postMessage({
             success: true,

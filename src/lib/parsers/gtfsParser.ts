@@ -1,4 +1,4 @@
-import type { GTFSStop, GTFSTransportType, GTFSShapePoint, GTFSShape } from '$lib/types/gtfs';
+import type { GTFSStop, GTFSMode, GTFSShapePoint, GTFSShape } from '$lib/types/gtfs';
 
 /**
  * Parse a file CSV GTFS stops and return an array of GTFSStop objects.
@@ -32,7 +32,7 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 		const stopId = cols[idIdx] || '';
 
 		if (!isNaN(lat) && !isNaN(lon)) {
-			let type: GTFSTransportType = 'bus';
+			let type: GTFSMode = 'bus';
 
 			if (network === 'filbleu') {
 				// Pour Filbleu, les stations de la ligne A du Tram contiennent 'Tram' ou des IDs spécifiques
