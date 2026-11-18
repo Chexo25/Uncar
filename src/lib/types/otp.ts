@@ -5,7 +5,7 @@ export interface OtpLocation {
 }
 
 export interface Leg {
-	mode: string; // "WALK", "BUS", "TRAM"
+	mode: string; // "walk", "bus_tram", "train", "bike", "car"
 	duration: number; // en secondes
 	distance: number; // en mètres
 	startTime: number;

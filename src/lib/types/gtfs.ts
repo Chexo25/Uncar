@@ -1,13 +1,13 @@
 import type { TransportMode } from '$lib/types/gpx';
 
-export type GTFSMode = Extract<TransportMode, 'bus' | 'tram' | 'train'>;
+export type GTFSMode = Extract<TransportMode, 'bus_tram' | 'train'>;
 
 export interface GTFSStop {
 	id: string;
 	name: string;
 	lat: number;
 	lon: number;
-	type: GTFSMode; // 'bus', 'tram' or 'train'
+	type: GTFSMode; // 'bus_tram' or 'train'
 	network: 'filbleu' | 'remi';
 }
 

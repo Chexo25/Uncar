@@ -10,10 +10,10 @@ import type { TransportMode} from '$lib/types/gpx';
 // Fonction de conversion valeur numérique -> mode transport interne
 function routeTypeToMode(routeType: number): GTFSMode {
     switch (routeType) {
-        case 0: return 'tram';
         case 2: return 'train';
-        case 3: 
-        default: return 'bus';
+        case 0:
+        case 3:
+        default: return 'bus_tram';
     }
 }
 

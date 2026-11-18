@@ -7,7 +7,7 @@ export interface GPSPoint {
     calculatedSpeed?: number;
 }
 
-export type TransportMode = 'walk'|'bike'|'car'|'bus'|'tram'|'train';
+export type TransportMode = 'walk'|'bike'|'car'|'bus_tram'|'train';
 
 export interface Segment {
     id: number;

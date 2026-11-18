@@ -53,7 +53,7 @@ export function classifyPointFeatures(
     // le même axe qu'un bus. Il faut un arrêt du même type ou une vitesse
     // incompatible avec le vélo pour confirmer le transport en commun.
     if (shapeType) {
-        if (maxSpeed > 55 && shapeType === 'bus') {
+        if (maxSpeed > 55 && shapeType === 'bus_tram') {
             return { mode: 'car', confidence: 90 };
         }
 

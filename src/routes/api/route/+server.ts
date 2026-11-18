@@ -9,7 +9,7 @@ export async function POST({ request }) {
 			return json({ error: 'Coordonnées de départ et d\'arrivée requises.' }, { status: 400 });
 		}
 
-		const data = await calculateRoute(fromLat, fromLon, toLat, toLon, mode || 'TRANSIT,WALK');
+		const data = await calculateRoute(fromLat, fromLon, toLat, toLon, mode || 'bus_tram,walk');
 		return json(data);
 	} catch (err: any) {
 		return json({ error: err.message }, { status: 500 });

@@ -20,17 +20,17 @@ function getMaxRadius(points: GPSPoint[]): number {
 const MAX_GAP_THRESHOLDS: Record<string, number> = {
     'bike->car': 60,
     'car->bike': 60,
-    'bike->bus': 60,
-    'bus->bike': 60,
-    'walk->bike': 20,
-    'bike->walk': 20,
+    'bike->bus_tram': 60,
+    'bus_tram->bike': 60,
+    'walk->bike': 0,
+    'bike->walk': 0,
 
-    'bus->train': 120,
-    'train->bus': 120,
+    'bus_tram->train': 120,
+    'train->bus_tram': 120,
     'train->car': 120,
     'car->train': 120,
-    'bus->car': 120,
-    'car->bus': 120
+    'bus_tram->car': 120,
+    'car->bus_tram': 120
 };
 
 function getMaxGapThreshold(modeA: TransportMode, modeB: TransportMode): number | null {
@@ -55,7 +55,7 @@ export function mergeContiguousSameMode(segments: Segment[]): Segment[] {
         const gap = (current.startTime.getTime() - prev.endTime.getTime()) / 1000;
 
         // On ne fusionne le même mode QUE si le temps mort entre les deux est négligeable (< 30s)
-        if (prev.mode === current.mode && gap <= 30) {
+        if (prev.mode === current.mode && gap <= 180) {
             prev.points = [...prev.points, ...current.points];
             prev.endTime = current.endTime;
             prev.durationSeconds = (prev.endTime.getTime() - prev.startTime.getTime()) / 1000;
@@ -151,26 +151,18 @@ export function buildSegments(
         c.conf <= STILL_CONF ? 'still' : c.label;
 
     const isStationary = (index: number): boolean => {
-        const pointTime = combined[index].pt.time.getTime();
-        const windowStart = pointTime - 90_000;
+        const current = combined[index].pt;
+        const t = current.time.getTime();
         let first = index;
-
-        while (first > 0 && combined[first - 1].pt.time.getTime() >= windowStart) {
-            first--;
-        }
-
-        const elapsed = (pointTime - combined[first].pt.time.getTime()) / 1000;
-        if (elapsed < 60) return false;
-
-        const distance = combined
-            .slice(first, index + 1)
-            .reduce((total, item) => total + (item.pt.distance || 0), 0);
-
-        return distance / elapsed < 0.35;
+        while (first > 0 && t - combined[first].pt.time.getTime() < 60_000) first--;
+        const origin = combined[first].pt;
+        const elapsed = (t - origin.time.getTime()) / 1000;
+        if (elapsed < 60 || elapsed > 600) return false;
+        return haversineDistance(origin.lat, origin.lon, current.lat, current.lon) / elapsed < 0.35;
     };
 
     const initialSegments: Segment[] = [];
-    const STATIONARY_SPLIT_SECONDS = 180;
+    const STATIONARY_SPLIT_SECONDS = 300;
     let currentPoints: GPSPoint[] = [combined[0].pt];
     let currentConfidences: number[] = [combined[0].conf];
     let currentKey: string = keyOf(combined[0]);
@@ -193,13 +185,13 @@ export function buildSegments(
 
         if (stationary) {
             stationaryPoints.push(item);
-            stationarySince ??= item.pt.time.getTime();
+            stationarySince ??= prevItem.pt.time.getTime();
             continue;
         }
 
         if (stationaryPoints.length > 0) {
             const stationaryDuration = stationarySince
-                ? (prevItem.pt.time.getTime() - stationarySince) / 1000
+                ? (item.pt.time.getTime() - stationarySince) / 1000
                 : 0;
             const splitAfterStop = stationaryDuration >= STATIONARY_SPLIT_SECONDS;
 
@@ -251,25 +243,27 @@ export function buildSegments(
 
     // 2. On fusionne les transitions dont le gap entre fin(A) et début(B) est <= au seuil
     const step2 = mergeShortSegments(step1);
-
+    
     return step2
     .filter((seg) => {
         const maxRadius = getMaxRadius(seg.points);
         const tortuosity = seg.distanceMeters / Math.max(2 * maxRadius, 1);
         const avgKmH = seg.avgSpeed * 3.6;
 
-        if (maxRadius < 60) return false;
+        if (maxRadius < 40) return false;
         if (tortuosity > 5 && maxRadius < 200) return false;
         
         // Règle demandée : aucun segment de marche sous 5 minutes (300 secondes)
-        if (seg.mode === 'walk' && seg.durationSeconds < 300) return false;
-        if (seg.mode === 'walk' && avgKmH < 2.0) return false;
+        if (seg.mode === 'walk' && seg.durationSeconds < 120) return false;
+        if (seg.mode === 'walk' && avgKmH < 3.0) return false;
+        if (seg.mode === 'walk' && maxRadius < 90) return false;
+        return seg.durationSeconds >= 30;
         
-        
-        return seg.durationSeconds >= 15;
     })
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
         .map((seg, idx) => ({ ...seg, id: idx + 1 }));
+
+        
 }
 
 export function createSegment(

@@ -32,21 +32,17 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 		const stopId = cols[idIdx] || '';
 
 		if (!isNaN(lat) && !isNaN(lon)) {
-			let type: GTFSMode = 'bus';
+			let type: GTFSMode = 'bus_tram';
 
 			if (network === 'filbleu') {
-				// Pour Filbleu, les stations de la ligne A du Tram contiennent 'Tram' ou des IDs spécifiques
-				if (stopName.toLowerCase().includes('tram') || stopId.startsWith('TRAM')) {
-					type = 'tram';
-				} else {
-					type = 'bus';
-				}
+				// Filbleu: bus et tram sont regroupes dans le meme mode.
+				type = 'bus_tram';
 			} else if (network === 'remi') {
 				// Pour Rémi, les gares ferroviaires SNCF/TER contiennent 'Gare'
 				if (stopName.toLowerCase().includes('gare') || stopId.includes('SNCF')) {
 					type = 'train';
 				} else {
-					type = 'bus'; // Cars interurbains Rémi
+					type = 'bus_tram'; // Cars interurbains Rémi
 				}
 			}
 
@@ -67,16 +63,13 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 /**
  * Mapping direct entre le code route_type GTFS (number) et les identifiants
  * 0 = Tram, 3 = Bus, 2 = Train
+ * Les lignes Filbleu sont toutes normalisees vers le mode bus_tram.
  */
 function getShapeRouteType(shapeId: string, network: 'filbleu' | 'remi'): number {
 	const lowerId = shapeId.toLowerCase();
 	
 	if (network === 'filbleu') {
-		// Ligne A du tram Filbleu -> route_type 0
-		if (lowerId.includes('tram') || lowerId.includes('line_a') || shapeId.startsWith('TRAM')) {
-			return 0; 
-		}
-		return 3; // Bus Filbleu -> route_type 3
+		return 3;
 	} else if (network === 'remi') {
 		// Train SNCF / TER Rémi -> route_type 2
 		if (lowerId.includes('sncf') || lowerId.includes('ter') || lowerId.includes('train')) {

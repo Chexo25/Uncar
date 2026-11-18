@@ -7,7 +7,7 @@ export async function calculateRoute(
 	fromLon: number,
 	toLat: number,
 	toLon: number,
-	mode: string = 'TRANSIT,WALK'
+	mode: string = 'bus_tram,walk'
 ): Promise<OtpPlanResponse> {
 	const params = new URLSearchParams({
 		fromPlace: `${fromLat},${fromLon}`,

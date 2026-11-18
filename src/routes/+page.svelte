@@ -9,6 +9,8 @@
 	import {Button} from '$lib/components/ui/button';
 	import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '$lib/components/ui/card';
 	import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '$lib/components/ui/table';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+	import * as Select from '$lib/components/ui/select';
     
     //reactive state variables
     let totalDistanceMeters = $state<number>(0);
@@ -167,22 +169,6 @@
 		return `${m}m ${s}s`;
 	}
 
-	//Format the transport mode for display purposes
-	function formatMode(mode: string): { label: string; emoji: string } {
-		const m = mode.toLowerCase();
-		switch (m) {
-			case 'walk': return { label: 'Marche', emoji: '🚶' };
-			case 'bike':
-			case 'bicycle': return { label: 'Vélo', emoji: '🚲' };
-			case 'bus':
-			case 'bus_tram': return { label: 'Bus / Tram', emoji: '🚌' };
-			case 'tram': return { label: 'Tramway', emoji: '🚊' };
-			case 'train': return { label: 'Train', emoji: '🚆' };
-			case 'car': return { label: 'Voiture', emoji: '🚗' };
-			default: return { label: 'Inconnu', emoji: '❓' };
-		}
-	}
-
 	//Colors of the confidence badge based on the confidence value
 	function getConfidenceBadgeClass(confidence: number): string {
 		if (confidence >= 80) return 'bg-green-100 text-green-800 border-green-300';
@@ -199,10 +185,106 @@
 			second: '2-digit'
 		});
 	}
+	const AVAILABLE_MODES = [
+		{ value: 'walk', label: '🚶 Marche' },
+		{ value: 'bike', label: '🚲 Vélo' },
+		{ value: 'bus_tram', label: '🚌 Bus / Tram' },
+		{ value: 'train', label: '🚆 Train' },
+		{ value: 'car', label: '🚗 Voiture' }
+	];
+
+	function handleModeChange(segmentId: string | number, newMode: string) {
+		segments = segments.map((seg) =>
+			seg.id === segmentId
+				? { ...seg, mode: newMode as Segment['mode'], confidence: 100 }
+				: seg
+		);
+	}
+
+	function handleMergeWithNext(index: number) {
+		if (index < 0 || index >= segments.length - 1) return;
+
+		const first = segments[index];
+		const second = segments[index + 1];
+
+		const newStartTime = new Date(first.startTime);
+		const newEndTime = new Date(second.endTime);
+		const newDistance = first.distanceMeters + second.distanceMeters;
+		const newDuration = Math.max(1, (newEndTime.getTime() - newStartTime.getTime()) / 1000);
+		const newAvgSpeed = newDistance / newDuration; // en m/s (cohérent avec ton * 3.6)
+		const dominantMode = first.distanceMeters >= second.distanceMeters ? first.mode : second.mode;
+
+		const merged: Segment = {
+			...first,
+			mode: dominantMode,
+			confidence: 100,
+			startTime: newStartTime,
+			endTime: newEndTime,
+			distanceMeters: newDistance,
+			durationSeconds: newDuration,
+			avgSpeed: newAvgSpeed,
+			points: [...(first.points || []), ...(second.points || [])]
+		};
+
+		segments = [
+			...segments.slice(0, index),
+			merged,
+			...segments.slice(index + 2)
+		];
+		openMenuId = null;
+	}
+
+	let openMenuId = $state<string | number | null>(null);
+
+	function handleMergeWithPrevious(index: number) {
+		if (index <= 0) return;
+		handleMergeWithNext(index - 1);
+		openMenuId = null;
+	}
+
+	function handleDeleteSegment(segmentId: string | number) {
+		segments = segments.filter((seg) => seg.id !== segmentId);
+		openMenuId = null;
+	}
+
+	function exportToGeoJSON() {
+		const geojson = {
+			type: 'FeatureCollection',
+			properties: {
+				fileName,
+				totalDistanceMeters,
+				durationSeconds
+			},
+			features: segments.map((seg, idx) => ({
+				type: 'Feature',
+				properties: {
+					segmentIndex: idx,
+					id: seg.id,
+					mode: seg.mode,
+					startTime: new Date(seg.startTime).toISOString(),
+					endTime: new Date(seg.endTime).toISOString(),
+					distanceMeters: seg.distanceMeters,
+					durationSeconds: seg.durationSeconds
+				},
+				geometry: {
+					type: 'LineString',
+					coordinates: (seg.points || []).map((p) => [p.lon, p.lat])
+				}
+			}))
+		};
+
+		const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${fileName.replace(/\.gpx$/i, '') || 'trajet'}_corrige.geojson`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
 
 </script>
 
-<main class="max-w-4xl mx-auto p-6 space-y-6">
+<main class="max-w-6xl mx-auto p-6 space-y-6">
 	<!-- En-tête -->
 	<div class="w-full text-center py-4">
 		<h1 class="text-3xl font-bold tracking-tight">Uncar</h1>
@@ -275,8 +357,11 @@
 	<!-- Tableau des Segments Détectés -->
 	{#if segments.length > 0}
 		<Card class="mt-6">
-			<CardHeader>
+			<CardHeader class="flex flex-row items-center justify-between">
 				<CardTitle>Segments détectés ({segments.length})</CardTitle>
+				<Button variant="outline" size="sm" onclick={exportToGeoJSON}>
+					Exporter en GeoJSON
+				</Button>
 			</CardHeader>
 			<CardContent>
 				<div class="border rounded-md">
@@ -294,17 +379,69 @@
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{#each segments as seg (seg.id)}
-								{@const modeInfo = formatMode(seg.mode)}
+							{#each segments as seg, index (seg.id)}
 								<TableRow>
-									<TableCell class="font-medium">#{seg.id}</TableCell>
+									<TableCell class="font-medium whitespace-nowrap">
+										<div class="flex items-center gap-1">
+											<DropdownMenu.Root>
+												<DropdownMenu.Trigger>
+													{#snippet child({ props })}
+														<Button {...props} variant="ghost" size="icon" class="h-7 w-7" title="Actions">
+															⋮
+														</Button>
+													{/snippet}
+												</DropdownMenu.Trigger>
 
-									<!-- Mode de transport -->
+												<DropdownMenu.Content align="start" class="w-56">
+													{#if index > 0}
+														<DropdownMenu.Item onclick={() => handleMergeWithPrevious(index)}>
+															↑ Fusionner avec le précédent
+														</DropdownMenu.Item>
+													{/if}
+
+													{#if index < segments.length - 1}
+														<DropdownMenu.Item onclick={() => handleMergeWithNext(index)}>
+															↓ Fusionner avec le suivant
+														</DropdownMenu.Item>
+													{/if}
+
+													{#if segments.length > 1}
+														<DropdownMenu.Separator />
+													{/if}
+
+													<DropdownMenu.Item
+														class="text-destructive focus:text-destructive"
+														onclick={() => handleDeleteSegment(seg.id)}
+													>
+														Supprimer le segment
+													</DropdownMenu.Item>
+												</DropdownMenu.Content>
+											</DropdownMenu.Root>
+
+											<span>#{seg.id}</span>
+										</div>
+									</TableCell>
+
+									<!-- Sélecteur de mode de transport -->
 									<TableCell>
-										<span class="inline-flex items-center gap-1.5 font-semibold">
-											<span>{modeInfo.emoji}</span>
-											<span>{modeInfo.label}</span>
-										</span>
+										<Select.Root
+											type="single"
+											value={seg.mode}
+											onValueChange={(v) => {
+												if (v) handleModeChange(seg.id, v);
+											}}
+										>
+											<Select.Trigger class="h-8 w-[145px]">
+												{AVAILABLE_MODES.find((m) => m.value === seg.mode)?.label ?? seg.mode}
+											</Select.Trigger>
+											<Select.Content>
+												{#each AVAILABLE_MODES as option}
+													<Select.Item value={option.value} label={option.label}>
+														{option.label}
+													</Select.Item>
+												{/each}
+											</Select.Content>
+										</Select.Root>
 									</TableCell>
 
 									<!-- Confiance (%) -->
@@ -318,11 +455,12 @@
 										</span>
 									</TableCell>
 
-									<TableCell>{formatSegmentTime(seg.startTime)}</TableCell>
-									<TableCell>{formatSegmentTime(seg.endTime)}</TableCell>
+									<TableCell>{formatSegmentTime(new Date(seg.startTime))}</TableCell>
+									<TableCell>{formatSegmentTime(new Date(seg.endTime))}</TableCell>
 									<TableCell class="text-right">{seg.distanceMeters.toFixed(1)} m</TableCell>
 									<TableCell class="text-right">{formatDuration(seg.durationSeconds)}</TableCell>
 									<TableCell class="text-right">{(seg.avgSpeed * 3.6).toFixed(1)} km/h</TableCell>
+
 								</TableRow>
 							{/each}
 						</TableBody>
