@@ -29,13 +29,11 @@ export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2
  * @returns 
  */
 export function parseGPX(gpxContent: string): GPSPoint[] {
-	//native XML parser in the browser
 	const parser = new DOMParser();
 	const xmlDoc = parser.parseFromString(gpxContent, 'text/xml');
 
 	const points: GPSPoint[] = [];
 	
-	//recuperation of all <trkpt> elements in the GPX file
 	const trkpts = xmlDoc.querySelectorAll('trkpt');
 
 	for (let i = 0; i < trkpts.length; i++) {
@@ -43,9 +41,8 @@ export function parseGPX(gpxContent: string): GPSPoint[] {
 		const lat = parseFloat(pt.getAttribute('lat') || '0');
 		const lon = parseFloat(pt.getAttribute('lon') || '0');
 
-		//extraction of the <time> element
 		const timeNode = pt.querySelector('time');
-		if (!timeNode || !timeNode.textContent) continue; //skip this point if no time is found
+		if (!timeNode || !timeNode.textContent) continue;
 		const currentTime = new Date(timeNode.textContent);
 
 		const gpsPoint: GPSPoint = {
@@ -54,7 +51,6 @@ export function parseGPX(gpxContent: string): GPSPoint[] {
 			time: currentTime
 		};
 
-		//extraction of the <speed> element, if present
 		const speedNode = pt.querySelector('speed') || pt.querySelector('gpxtrx\\:speed');
 		if (speedNode && speedNode.textContent) {
 			const parsedSpeed = parseFloat(speedNode.textContent);
@@ -63,7 +59,6 @@ export function parseGPX(gpxContent: string): GPSPoint[] {
 			}
 		}
 
-		//speed and distance calculation based on the previous point
 		if (points.length > 0) {
 			const prevPt = points[points.length - 1];
 			const dist = haversineDistance(prevPt.lat, prevPt.lon, lat, lon);
@@ -84,5 +79,5 @@ export function parseGPX(gpxContent: string): GPSPoint[] {
 		points.push(gpsPoint);
 	}
 
-	return applyMedianFilter(points, 5); //apply median filter with a window size of 5 to smooth the speed values
+	return applyMedianFilter(points, 5);
 }

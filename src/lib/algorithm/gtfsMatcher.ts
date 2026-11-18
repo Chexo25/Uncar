@@ -10,7 +10,7 @@ export interface BoundingBox {
 }
 
 /**
- * Recherche un arrêt GTFS proche en utilisant la BoundingBox pour ne pas tout parcourir.
+ * Finds a nearby GTFS stop.
  */
 export function getNearbyGTFSType(
     point: GPSPoint,
@@ -21,7 +21,6 @@ export function getNearbyGTFSType(
 
     for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
-        // Bounding box rapide par arrêt
         if (
             Math.abs(point.lat - stop.lat) > degThreshold ||
             Math.abs(point.lon - stop.lon) > degThreshold
@@ -37,8 +36,7 @@ export function getNearbyGTFSType(
 }
 
 /**
- * Pré-filtre les lignes GTFS qui croisent la BoundingBox globale de la trace GPX.
- * Accepte un tableau ou une Map de GTFSShape.
+ * Filters GTFS shapes intersecting the GPX bounding box.
  */
 export function filterShapesInBBox(
     shapes: GTFSShape[] | Map<string, GTFSShape>,
@@ -62,8 +60,7 @@ export function filterShapesInBBox(
 }
 
 /**
- * Cherche et retourne la première GTFSShape proche d'un point GPS donné.
- * Retourne la GTFSShape si elle est trouvée à moins de maxDistanceMeters, sinon null.
+ * Returns the first GTFS shape within maxDistanceMeters of a point.
  */
 export function getMatchingGTFSShape(
     point: GPSPoint,
@@ -73,7 +70,6 @@ export function getMatchingGTFSShape(
     for (let s = 0; s < shapes.length; s++) {
         const shape = shapes[s];
 
-        // 1. Rejet rapide par Bounding Box
         if (
             point.lat < shape.bbox.minLat - 0.0003 ||
             point.lat > shape.bbox.maxLat + 0.0003 ||
@@ -83,20 +79,19 @@ export function getMatchingGTFSShape(
             continue;
         }
 
-        // 2. Recherche du point le plus proche dans la shape (pas de 3 pour aller vite)
         const shapePts = shape.points;
         for (let j = 0; j < shapePts.length; j += 3) {
             if (haversineDistance(point.lat, point.lon, shapePts[j].lat, shapePts[j].lon) <= maxDistanceMeters) {
-                return shape; // Retourne l'objet GTFSShape directement
+                return shape;
             }
         }
     }
 
-    return null; // Aucune shape matchée
+    return null;
 }
 
 /**
- * Échantillonne le test sur la trace GPX pour accélérer l'exécution globale.
+ * Samples GPX points to reduce shape matching cost.
  */
 export function matchPointsWithShapesFast(
     points: GPSPoint[],

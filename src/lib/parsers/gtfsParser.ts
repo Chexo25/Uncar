@@ -24,7 +24,6 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 		const line = lines[i].trim();
 		if (!line) continue;
 
-		// Split the line into columns, handling quoted values and trimming whitespace
 		const cols = line.split(',').map((c) => c.trim().replace(/"/g, ''));
 		const lat = parseFloat(cols[latIdx]);
 		const lon = parseFloat(cols[lonIdx]);
@@ -35,14 +34,12 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 			let type: GTFSMode = 'bus_tram';
 
 			if (network === 'filbleu') {
-				// Filbleu: bus et tram sont regroupes dans le meme mode.
 				type = 'bus_tram';
 			} else if (network === 'remi') {
-				// Pour Rémi, les gares ferroviaires SNCF/TER contiennent 'Gare'
 				if (stopName.toLowerCase().includes('gare') || stopId.includes('SNCF')) {
 					type = 'train';
 				} else {
-					type = 'bus_tram'; // Cars interurbains Rémi
+					type = 'bus_tram';
 				}
 			}
 
@@ -61,9 +58,8 @@ export function parseGTFSStops(csvContent: string, network: 'filbleu' | 'remi'):
 }
 
 /**
- * Mapping direct entre le code route_type GTFS (number) et les identifiants
- * 0 = Tram, 3 = Bus, 2 = Train
- * Les lignes Filbleu sont toutes normalisees vers le mode bus_tram.
+ * Maps GTFS route identifiers to internal route types.
+ * Filbleu routes use bus_tram; Remi distinguishes train from bus_tram.
  */
 function getShapeRouteType(shapeId: string, network: 'filbleu' | 'remi'): number {
 	const lowerId = shapeId.toLowerCase();
@@ -71,11 +67,10 @@ function getShapeRouteType(shapeId: string, network: 'filbleu' | 'remi'): number
 	if (network === 'filbleu') {
 		return 3;
 	} else if (network === 'remi') {
-		// Train SNCF / TER Rémi -> route_type 2
 		if (lowerId.includes('sncf') || lowerId.includes('ter') || lowerId.includes('train')) {
 			return 2; 
 		}
-		return 3; // Car interurbain -> route_type 3
+		return 3;
 	}
 	
 	return 3;
@@ -132,7 +127,7 @@ export function parseGTFSShapes(csvContent: string, network: 'filbleu' | 'remi' 
             id: shapeId,
             points,
             bbox: { minLat, maxLat, minLon, maxLon },
-            routeType: getShapeRouteType(shapeId, network) // Valeur numérique : 0, 2 ou 3
+            routeType: getShapeRouteType(shapeId, network)
         });
     }
 

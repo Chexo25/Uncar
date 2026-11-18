@@ -1,7 +1,7 @@
 import type { GPSPoint } from '../types/gpx';
 
 /**
- * Calculates the bearing in degrees between two GPS points (found on internet)
+ * Calculates the bearing in degrees between two GPS points.
  * @param pt1 The first GPS point.
  * @param pt2 The second GPS point.
  * @returns The bearing in degrees from the first point to the second point.
@@ -14,7 +14,7 @@ export function calculateBearing(pt1: GPSPoint, pt2: GPSPoint): number {
 
     const y = Math.sin(deltaLon) * Math.cos(lat2);
     const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
-    const bearing = Math.atan2(y, x) / rad; // Convert back to degrees
+    const bearing = Math.atan2(y, x) / rad;
 
-    return (bearing + 360) % 360; // Normalize to [0, 360)
+    return (bearing + 360) % 360;
 }

@@ -2,10 +2,10 @@ import type {GPSPoint} from '../types/gpx';
 import {calculateBearing} from './physicMetrics';
 
 export interface PointFeatures {
-    localAvgSpeed: number; //in km/h
-    localMaxSpeed: number; //in km/h
-    localMaxAcceleration: number; //in m/s²
-    localAvgBearingChange: number; //in degrees per point
+    localAvgSpeed: number;
+    localMaxSpeed: number;
+    localMaxAcceleration: number;
+    localAvgBearingChange: number;
 }
 
 /**
@@ -20,12 +20,10 @@ export function computePointFeatures(points: GPSPoint[], windowSize: number = 3)
         const end = Math.min(points.length - 1, i + windowSize);
         const windowPoints = points.slice(start, end + 1);
 
-        //local speeds
-        const speeds = windowPoints.map(p => (p.calculatedSpeed || 0) * 3.6); //in km/h
+        const speeds = windowPoints.map(p => (p.calculatedSpeed || 0) * 3.6);
         const localAvgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
         const localMaxSpeed = Math.max(...speeds);
 
-        //local accelerations and bearing changes
         const accelerations: number[] = [];
         const bearingChanges: number[] = [];
         let prevBearing: number | null = null;
@@ -38,13 +36,12 @@ export function computePointFeatures(points: GPSPoint[], windowSize: number = 3)
 
                 if (dt > 0) {
                     const dv = (p2.calculatedSpeed || 0) - (p1.calculatedSpeed || 0);
-                    accelerations.push(Math.abs(dv / dt)); //in m/s²
+                    accelerations.push(Math.abs(dv / dt));
                 }
 
                 const b = calculateBearing(p1, p2);
                 if (prevBearing !== null){
                     let diff = Math.abs(b - prevBearing);
-                    if (diff > 180) diff = 360 - diff; //normalize to [0, 180]
                     bearingChanges.push(diff);
                 }
                 prevBearing = b;

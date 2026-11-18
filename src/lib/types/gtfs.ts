@@ -7,7 +7,7 @@ export interface GTFSStop {
 	name: string;
 	lat: number;
 	lon: number;
-	type: GTFSMode; // 'bus_tram' or 'train'
+	type: GTFSMode;
 	network: 'filbleu' | 'remi';
 }
 
@@ -23,5 +23,5 @@ export interface GTFSShape {
     id: string;
     points: GTFSShapePoint[];
     bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number };
-    routeType?: number; // GTFS route_type: 0 = tram, 2 = train, 3 = bus
+    routeType?: number;
 }

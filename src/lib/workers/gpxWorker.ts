@@ -7,7 +7,6 @@ import { getNearbyGTFSType, filterShapesInBBox, matchPointsWithShapesFast } from
 import type { GTFSStop, GTFSShape, GTFSMode } from '$lib/types/gtfs';
 import type { TransportMode} from '$lib/types/gpx';
 
-// Fonction de conversion valeur numérique -> mode transport interne
 function routeTypeToMode(routeType: number): GTFSMode {
     switch (routeType) {
         case 2: return 'train';
@@ -21,7 +20,6 @@ self.onmessage = (e: MessageEvent) => {
     const { parsedPoints: rawPoints, gtfsStops, filbleuShapes, remiShapes } = e.data;
 
     try {
-        // Conversion rapide des dates
         const parsedPoints = rawPoints.map((p: any) => ({
             ...p,
             time: p.time instanceof Date ? p.time : new Date(p.time)
@@ -43,14 +41,12 @@ self.onmessage = (e: MessageEvent) => {
         const activeFilbleuShapes = filterShapesInBBox(filbleuShapes, bbox);
         const activeRemiShapes = filterShapesInBBox(remiShapes, bbox);
 
-        // 1. matchPointsWithShapesFast doit retourner l'ID du shape matché ou le type
         const filbleuMatches = matchPointsWithShapesFast(sampledPoints, activeFilbleuShapes, 3, 15);
         const remiMatches = matchPointsWithShapesFast(sampledPoints, activeRemiShapes, 3, 15);
 
         const sampledResults = sampledFeatures.map((f, idx) => {
             const point = sampledPoints[idx];
             
-            // 1. Recherche d'arrêts GTFS dans un rayon de 30m
             const nearbyStopType = getNearbyGTFSType(point, gtfsStops, 30);
 
             let shapeType: GTFSMode| null = null;
@@ -59,8 +55,6 @@ self.onmessage = (e: MessageEvent) => {
             const matchedRemi = remiMatches[idx];
 
             if (matchedFilbleu) {
-                // Exigence : pour Filbleu, il faut soit un arrêt proche, soit une vitesse caractérisant le TC
-                // Si on est hors zone Filbleu (aucun arrêt GTFS proche sur l'ensemble du sous-segment), on ignore la shape
                 shapeType = routeTypeToMode(matchedFilbleu.routeType ?? 3);
             } else if (matchedRemi) {
                 shapeType = routeTypeToMode(matchedRemi.routeType ?? 2);

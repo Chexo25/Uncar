@@ -7,24 +7,21 @@ import type { TransportMode } from '../types/gpx';
  * @returns A new array of transport mode labels with smoothed values.
  */
 export function applyLabelSmoother(rawLabels: TransportMode[], windowSize: number = 9): TransportMode[] {
-    if (rawLabels.length < windowSize) return rawLabels; //Not enough points to apply the filter
+    if (rawLabels.length < windowSize) return rawLabels;
 
     const half = Math.floor(windowSize / 2);
     const smoothed: TransportMode[] = [];
 
-    //definition of the function to get the majority label in a window
     for (let i = 0; i < rawLabels.length; i++) {
         const start = Math.max(0, i - half);
         const end = Math.min(rawLabels.length - 1, i + half);
         const window = rawLabels.slice(start, end + 1);
 
-        //count the occurrences of each label in the window
         const counts = new Map<TransportMode, number>();
         for (const label of window) {
             counts.set(label, (counts.get(label) || 0) + 1);
         }
 
-        //get the label with the maximum count
         let majorityMode = rawLabels[i];
         let maxCount = 0;
         counts.forEach((count, mode) => {
@@ -34,18 +31,15 @@ export function applyLabelSmoother(rawLabels: TransportMode[], windowSize: numbe
             }
         });
 
-        // Protection de la marche
         const walkCount = counts.get('walk') || 0;
         if (walkCount / window.length >= 0.35 && rawLabels[i] === 'walk') {
             smoothed.push('walk');
             continue;
         }
 
-        // Inertie voiture : si le mode précédent était "car" et qu'on hésite avec bus/tram
         const previousMode = smoothed.length > 0 ? smoothed[smoothed.length - 1] : rawLabels[0];
         if (previousMode === 'car' && majorityMode === 'bus_tram') {
             const tcCount = counts.get('bus_tram') || 0;
-            // Si bus/tram ne représente pas au moins 70% de la fenêtre, on reste en voiture
             if (tcCount / window.length < 0.7) {
                 majorityMode = 'car';
             }

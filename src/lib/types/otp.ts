@@ -5,16 +5,16 @@ export interface OtpLocation {
 }
 
 export interface Leg {
-	mode: string; // "walk", "bus_tram", "train", "bike", "car"
-	duration: number; // en secondes
-	distance: number; // en mètres
+	mode: string;
+	duration: number;
+	distance: number;
 	startTime: number;
 	endTime: number;
 	from: OtpLocation;
 	to: OtpLocation;
-	routeShortName?: string; // ex: "A", "2"
+	routeShortName?: string;
 	legGeometry: {
-		points: string; // Polyline encodée
+		points: string;
 	};
 }
 

@@ -12,7 +12,6 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Select from '$lib/components/ui/select';
     
-    //reactive state variables
     let totalDistanceMeters = $state<number>(0);
     let durationSeconds = $state<number>(0);
     let maxSpeed = $state<number>(0);
@@ -24,15 +23,8 @@
 	let remiShapes = $state<Map<string, GTFSShape>>(new Map());
 	let isAnalyzing = $state<boolean>(false);
 
-	async function fetchText(url: string): Promise<string> {
-		const res = await fetch(url);
-		if (!res.ok) throw new Error(`Erreur HTTP ${res.status} pour ${url}`);
-		return res.text();
-	}
-
 	onMount(async () => {
 		try {
-			//recuperation of GTFS files for Filbleu and Rémi
 			const [filbleuStopsRes, remiStopsRes, filbleuShapesRes, remiShapesRes] = await Promise.all([
 				fetch('/gtfs/filbleu/stops.txt'),
 				fetch('/gtfs/remi/stops.txt'),
@@ -40,7 +32,6 @@
 				fetch('/gtfs/remi/shapes.txt')
 			]);
 
-			//convert the responses to text
 			const [filbleuStopsTxt, remiStopsTxt, filbleuShapesTxt, remiShapesTxt] = await Promise.all([
 				filbleuStopsRes.text(),
 				remiStopsRes.text(),
@@ -48,12 +39,10 @@
 				remiShapesRes.text()
 			]);
 
-			//stops parsing
 			const filbleuStops = parseGTFSStops(filbleuStopsTxt, 'filbleu');
 			const remiStops = parseGTFSStops(remiStopsTxt, 'remi');
 			gtfsStops = [...filbleuStops, ...remiStops];
 
-			//shapes parsing
 			filbleuShapes = parseGTFSShapes(filbleuShapesTxt, 'filbleu');
 			remiShapes = parseGTFSShapes(remiShapesTxt, 'remi');
 
@@ -65,7 +54,6 @@
 		}
 	});
 
-	//File import
     function handleFileUpload(event: Event) {
         const input = event.target as HTMLInputElement;
         if (!input.files || input.files.length === 0) return;
@@ -85,13 +73,8 @@
             }
 
             try {
-                // 1. Parsing GPX rapide sur le thread principal
                 const parsedPoints = parseGPX(content);
-
-                // 2. Instanciation du Worker
                 const worker = new GpxWorker();
-
-                // 3. Préparation des structures "Plain Objects" 100 % clonables pour postMessage
                 const plainStops = gtfsStops.map((s) => ({
                     id: s.id,
                     name: s.name,
@@ -123,7 +106,6 @@
                     distance: p.distance
                 }));
 
-                // 4. Écouteurs de messages et erreurs du Worker
                 worker.onmessage = (msgEvent: MessageEvent) => {
                     isAnalyzing = false;
                     if (msgEvent.data.success) {
@@ -144,7 +126,6 @@
                     worker.terminate();
                 };
 
-                // 5. Envoi des données au Worker
                 worker.postMessage({
                     parsedPoints: plainPoints,
                     gtfsStops: plainStops,
@@ -162,14 +143,12 @@
         reader.readAsText(file);
     }
 
-	//Utility function to format duration in seconds to a human-readable string
 	function formatDuration(seconds: number): string {
 		const m = Math.floor(seconds / 60);
 		const s = Math.floor(seconds % 60);
 		return `${m}m ${s}s`;
 	}
 
-	//Colors of the confidence badge based on the confidence value
 	function getConfidenceBadgeClass(confidence: number): string {
 		if (confidence >= 80) return 'bg-green-100 text-green-800 border-green-300';
 		if (confidence >= 60) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
@@ -211,7 +190,7 @@
 		const newEndTime = new Date(second.endTime);
 		const newDistance = first.distanceMeters + second.distanceMeters;
 		const newDuration = Math.max(1, (newEndTime.getTime() - newStartTime.getTime()) / 1000);
-		const newAvgSpeed = newDistance / newDuration; // en m/s (cohérent avec ton * 3.6)
+		const newAvgSpeed = newDistance / newDuration;
 		const dominantMode = first.distanceMeters >= second.distanceMeters ? first.mode : second.mode;
 
 		const merged: Segment = {
@@ -231,20 +210,15 @@
 			merged,
 			...segments.slice(index + 2)
 		];
-		openMenuId = null;
 	}
-
-	let openMenuId = $state<string | number | null>(null);
 
 	function handleMergeWithPrevious(index: number) {
 		if (index <= 0) return;
 		handleMergeWithNext(index - 1);
-		openMenuId = null;
 	}
 
 	function handleDeleteSegment(segmentId: string | number) {
 		segments = segments.filter((seg) => seg.id !== segmentId);
-		openMenuId = null;
 	}
 
 	function exportToGeoJSON() {
@@ -285,15 +259,12 @@
 </script>
 
 <main class="max-w-6xl mx-auto p-6 space-y-6">
-	<!-- En-tête -->
 	<div class="w-full text-center py-4">
 		<h1 class="text-3xl font-bold tracking-tight">Uncar</h1>
 	</div>
 
-	<!-- Zone d'importation (Bouton simple) -->
 	<Card>
 		<CardContent class="p-6 flex flex-col items-center justify-center space-y-4">
-			<!-- Balise HTML input masquée -->
 			<input 
 				type="file" 
 				accept=".gpx" 
@@ -302,7 +273,6 @@
 				class="hidden" 
 			/>
 			
-			<!-- Bouton shadcn qui déclenche le clic sur l'input masqué -->
 			<Button 
 				variant="default" 
 				disabled={isAnalyzing}
@@ -354,7 +324,6 @@
 		</div>
 	{/if}
 
-	<!-- Tableau des Segments Détectés -->
 	{#if segments.length > 0}
 		<Card class="mt-6">
 			<CardHeader class="flex flex-row items-center justify-between">
@@ -422,7 +391,6 @@
 										</div>
 									</TableCell>
 
-									<!-- Sélecteur de mode de transport -->
 									<TableCell>
 										<Select.Root
 											type="single"
@@ -444,7 +412,6 @@
 										</Select.Root>
 									</TableCell>
 
-									<!-- Confiance (%) -->
 									<TableCell class="text-center">
 										<span
 											class="inline-block px-2 py-0.5 text-xs font-semibold rounded-full border {getConfidenceBadgeClass(

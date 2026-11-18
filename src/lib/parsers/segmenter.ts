@@ -1,5 +1,3 @@
-// src/lib/parsers/segmenter.ts
-
 import type { GPSPoint, Segment, TransportMode } from '$lib/types/gpx';
 import { haversineDistance } from '$lib/parsers/gpxParser';
 
@@ -14,8 +12,7 @@ function getMaxRadius(points: GPSPoint[]): number {
 }
 
 /**
- * Matrice des seuils MAXIMAL d'écart (gap en secondes) entre la fin d'un segment et le début du suivant.
- * Si (début_B - fin_A) <= seuil, la transition est jugée trop immédiate/impossible et les deux segments fusionnent.
+ * Maximum allowed time gaps for likely invalid transitions between modes.
  */
 const MAX_GAP_THRESHOLDS: Record<string, number> = {
     'bike->car': 60,
@@ -39,8 +36,7 @@ function getMaxGapThreshold(modeA: TransportMode, modeB: TransportMode): number 
 }
 
 /**
- * Ne fusionne deux segments de MÊME MODE QUE SI l'écart temporel est nul/quasi-nul (pause < 30s).
- * Préserve les pauses réelles (ex: 5 minutes de pause gardent 2 segments vélo séparés).
+ * Merges contiguous segments only when the gap is negligible.
  */
 export function mergeContiguousSameMode(segments: Segment[]): Segment[] {
     if (segments.length <= 1) return segments;
@@ -51,10 +47,8 @@ export function mergeContiguousSameMode(segments: Segment[]): Segment[] {
         const current = segments[i];
         const prev = merged[merged.length - 1];
 
-        // Écart temporel réel entre la fin de A et le début de B
         const gap = (current.startTime.getTime() - prev.endTime.getTime()) / 1000;
 
-        // On ne fusionne le même mode QUE si le temps mort entre les deux est négligeable (< 30s)
         if (prev.mode === current.mode && gap <= 180) {
             prev.points = [...prev.points, ...current.points];
             prev.endTime = current.endTime;
@@ -71,7 +65,7 @@ export function mergeContiguousSameMode(segments: Segment[]): Segment[] {
 }
 
 /**
- * Fusionne les segments consécutifs si le TEMPS DE TRANSITION (gap) entre eux est trop faible.
+ * Merges consecutive segments when their transition gap is too short.
  */
 export function mergeShortSegments(rawSegments: Segment[]): Segment[] {
     let segments = mergeContiguousSameMode(rawSegments);
@@ -93,11 +87,8 @@ export function mergeShortSegments(rawSegments: Segment[]): Segment[] {
             let shouldAbsorb = false;
 
             if (prev && current.mode !== prev.mode) {
-                // Temps mort exact (en secondes) entre la fin de 'prev' et le début de 'current'
                 const gapSeconds = (current.startTime.getTime() - prev.endTime.getTime()) / 1000;
                 const maxAllowedGap = getMaxGapThreshold(prev.mode, current.mode);
-                // Si le gap entre la fin de prev et le début de current est INFERIEUR ou EGAL au seuil
-                // (ex: 2 secondes <= 60 secondes pour Bus->Vélo), la transition est invalide -> fusion !
                 if (maxAllowedGap !== null && gapSeconds <= maxAllowedGap) {
                     shouldAbsorb = true;
                 }
@@ -106,8 +97,6 @@ export function mergeShortSegments(rawSegments: Segment[]): Segment[] {
             if (shouldAbsorb && prev) {
                 changed = true;
 
-                // Choix du mode final : on conserve le mode du segment le plus long en durée
-                // Si l'un des deux est 'walk' mais que la vitesse globale dépasse 6 km/h, privilégier l'autre mode
                 let targetMode = prev.durationSeconds >= current.durationSeconds ? prev.mode : current.mode;
                 if ((prev.mode === 'walk' || current.mode === 'walk') && (prev.avgSpeed * 3.6 > 6 || current.avgSpeed * 3.6 > 6)) {
                     targetMode = prev.mode === 'walk' ? current.mode : prev.mode;
@@ -238,10 +227,7 @@ export function buildSegments(
 
     flush();
 
-    // 1. On regroupe uniquement les segments contigus sans pause
     const step1 = mergeContiguousSameMode(initialSegments);
-
-    // 2. On fusionne les transitions dont le gap entre fin(A) et début(B) est <= au seuil
     const step2 = mergeShortSegments(step1);
     
     return step2
@@ -253,7 +239,6 @@ export function buildSegments(
         if (maxRadius < 40) return false;
         if (tortuosity > 5 && maxRadius < 200) return false;
         
-        // Règle demandée : aucun segment de marche sous 5 minutes (300 secondes)
         if (seg.mode === 'walk' && seg.durationSeconds < 120) return false;
         if (seg.mode === 'walk' && avgKmH < 3.0) return false;
         if (seg.mode === 'walk' && maxRadius < 90) return false;

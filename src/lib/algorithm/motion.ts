@@ -1,14 +1,11 @@
-// Emplacement : src/lib/algorithm/motion.ts  (NOUVEAU FICHIER)
 import { haversineDistance } from '$lib/parsers/gpxParser';
 import type { GPSPoint, Segment, TransportMode } from '$lib/types/gpx';
 
-// --- Seuils à calibrer sur tes traces (en km/h) ---
-const CAR_MIN_P95 = 50;  // au-dessus : forcément voiture
-const BIKE_MAX_P95 = 40; // en dessous : plutôt vélo
+const CAR_MIN_P95 = 50;
+const BIKE_MAX_P95 = 40;
 
 /**
- * Vitesse en m/s calculée comme le déplacement net sur une fenêtre de `windowSec` secondes
- * centrée sur chaque point. Beaucoup moins sensible au bruit GPS que la vitesse instantanée.
+ * Calculates net displacement speed over a centered window.
  */
 export function windowedSpeeds(points: GPSPoint[], windowSec = 20): number[] {
     const n = points.length;
@@ -26,7 +23,6 @@ export function windowedSpeeds(points: GPSPoint[], windowSec = 20): number[] {
         if (hi < i) hi = i;
         while (hi < n - 1 && times[hi + 1] <= t + half) hi++;
 
-        // Toujours au moins un voisin de chaque côté (utile si le GPX est peu échantillonné)
         const a = lo < i ? lo : Math.max(0, i - 1);
         const b = hi > i ? hi : Math.min(n - 1, i + 1);
 
@@ -45,7 +41,7 @@ function percentile(sorted: number[], p: number): number {
 
 /**
  * Corrige le mode d'un segment bike/car en regardant sa vitesse globale (percentile 95).
- * Les autres modes ne sont pas touchés.
+ * Other modes are left unchanged.
  */
 export function reclassifySegment(seg: Segment): TransportMode {
     if (seg.mode !== 'bike' && seg.mode !== 'car') return seg.mode;
@@ -57,5 +53,5 @@ export function reclassifySegment(seg: Segment): TransportMode {
 
     if (p95 >= CAR_MIN_P95) return 'car';
     if (p95 < BIKE_MAX_P95) return 'bike';
-    return seg.mode; // zone ambiguë : on garde la décision point par point
+    return seg.mode;
 }
