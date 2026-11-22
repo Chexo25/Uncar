@@ -11,6 +11,17 @@
 	import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '$lib/components/ui/table';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Select from '$lib/components/ui/select';
+	import BikeIcon from '@lucide/svelte/icons/bike';
+	import BusFrontIcon from '@lucide/svelte/icons/bus-front';
+	import CarFrontIcon from '@lucide/svelte/icons/car-front';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import EllipsisVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
+	import FootprintsIcon from '@lucide/svelte/icons/footprints';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import MergeIcon from '@lucide/svelte/icons/merge';
+	import TrainFrontIcon from '@lucide/svelte/icons/train-front';
+	import TrashIcon from '@lucide/svelte/icons/trash';
+	import UploadIcon from '@lucide/svelte/icons/upload';
     
     let totalDistanceMeters = $state<number>(0);
     let durationSeconds = $state<number>(0);
@@ -46,9 +57,6 @@
 			filbleuShapes = parseGTFSShapes(filbleuShapesTxt, 'filbleu');
 			remiShapes = parseGTFSShapes(remiShapesTxt, 'remi');
 
-			console.log(
-				`GTFS chargé : ${gtfsStops.length} arrêts | ${filbleuShapes.size} lignes Filbleu | ${remiShapes.size} lignes Rémi.`
-			);
 		} catch (e) {
 			console.error('Erreur lors du chargement des fichiers GTFS :', e);
 		}
@@ -165,11 +173,11 @@
 		});
 	}
 	const AVAILABLE_MODES = [
-		{ value: 'walk', label: '🚶 Marche' },
-		{ value: 'bike', label: '🚲 Vélo' },
-		{ value: 'bus_tram', label: '🚌 Bus / Tram' },
-		{ value: 'train', label: '🚆 Train' },
-		{ value: 'car', label: '🚗 Voiture' }
+		{ value: 'walk', label: 'Marche' },
+		{ value: 'bike', label: 'Vélo' },
+		{ value: 'bus_tram', label: 'Bus / Tram' },
+		{ value: 'train', label: 'Train' },
+		{ value: 'car', label: 'Voiture' }
 	];
 
 	function handleModeChange(segmentId: string | number, newMode: string) {
@@ -258,6 +266,20 @@
 
 </script>
 
+{#snippet ModeIcon(mode: string)}
+	{#if mode === 'walk'}
+		<FootprintsIcon size={16} />
+	{:else if mode === 'bike'}
+		<BikeIcon size={16} />
+	{:else if mode === 'bus_tram'}
+		<BusFrontIcon size={16} />
+	{:else if mode === 'train'}
+		<TrainFrontIcon size={16} />
+	{:else if mode === 'car'}
+		<CarFrontIcon size={16} />
+	{/if}
+{/snippet}
+
 <main class="max-w-6xl mx-auto p-6 space-y-6">
 	<div class="w-full text-center py-4">
 		<h1 class="text-3xl font-bold tracking-tight">Uncar</h1>
@@ -279,8 +301,10 @@
 				onclick={() => document.getElementById('fileInput')?.click()}
 			>
 				{#if isAnalyzing}
+					<LoaderCircleIcon size={16} class="animate-spin" />
 					Analyse en cours...
 				{:else}
+					<UploadIcon size={16} />
 					Importer un fichier GPX
 				{/if}
 			</Button>
@@ -329,6 +353,7 @@
 			<CardHeader class="flex flex-row items-center justify-between">
 				<CardTitle>Segments détectés ({segments.length})</CardTitle>
 				<Button variant="outline" size="sm" onclick={exportToGeoJSON}>
+					<DownloadIcon size={16} />
 					Exporter en GeoJSON
 				</Button>
 			</CardHeader>
@@ -356,7 +381,7 @@
 												<DropdownMenu.Trigger>
 													{#snippet child({ props })}
 														<Button {...props} variant="ghost" size="icon" class="h-7 w-7" title="Actions">
-															⋮
+															<EllipsisVerticalIcon size={16} />
 														</Button>
 													{/snippet}
 												</DropdownMenu.Trigger>
@@ -364,13 +389,15 @@
 												<DropdownMenu.Content align="start" class="w-56">
 													{#if index > 0}
 														<DropdownMenu.Item onclick={() => handleMergeWithPrevious(index)}>
-															↑ Fusionner avec le précédent
+															<MergeIcon size={16} />
+															Fusionner avec le précédent
 														</DropdownMenu.Item>
 													{/if}
 
 													{#if index < segments.length - 1}
 														<DropdownMenu.Item onclick={() => handleMergeWithNext(index)}>
-															↓ Fusionner avec le suivant
+															<MergeIcon size={16} />
+															Fusionner avec le suivant
 														</DropdownMenu.Item>
 													{/if}
 
@@ -382,6 +409,7 @@
 														class="text-destructive focus:text-destructive"
 														onclick={() => handleDeleteSegment(seg.id)}
 													>
+														<TrashIcon size={16} />
 														Supprimer le segment
 													</DropdownMenu.Item>
 												</DropdownMenu.Content>
@@ -400,12 +428,18 @@
 											}}
 										>
 											<Select.Trigger class="h-8 w-[145px]">
-												{AVAILABLE_MODES.find((m) => m.value === seg.mode)?.label ?? seg.mode}
+												<span class="flex items-center gap-2">
+													{@render ModeIcon(seg.mode)}
+													{AVAILABLE_MODES.find((m) => m.value === seg.mode)?.label ?? seg.mode}
+												</span>
 											</Select.Trigger>
 											<Select.Content>
 												{#each AVAILABLE_MODES as option}
 													<Select.Item value={option.value} label={option.label}>
-														{option.label}
+														<span class="flex items-center gap-2">
+															{@render ModeIcon(option.value)}
+															{option.label}
+														</span>
 													</Select.Item>
 												{/each}
 											</Select.Content>
